@@ -1065,6 +1065,30 @@ throw an "operational" evaluation error). Please respect the distinction when ad
 functions.
 -}
 
+boundedByteStringLength :: Integer -> Int
+boundedByteStringLength n
+  | n <= 0 = 0
+  | n > toInteger (maxBound :: Int) = maxBound
+  | otherwise = fromInteger n
+{-# INLINE boundedByteStringLength #-}
+
+sliceByteStringInteger :: Integer -> Integer -> BS.ByteString -> BS.ByteString
+sliceByteStringInteger start n xs
+  | n <= 0 = mempty
+  | start >= inputLength = mempty
+  | start <= 0 = BS.take takeLength xs
+  | otherwise = BS.take takeLength . BS.drop (fromInteger start) $ xs
+  where
+    inputLength = toInteger $ BS.length xs
+    takeLength = boundedByteStringLength n
+{-# INLINE sliceByteStringInteger #-}
+
+indexByteStringInteger :: BS.ByteString -> Integer -> BuiltinResult Word8
+indexByteStringInteger xs n
+  | n < 0 || n >= toInteger (BS.length xs) = fail "Index out of bounds"
+  | otherwise = pure . BS.index xs $ fromInteger n
+{-# INLINE indexByteStringInteger #-}
+
 instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
   type CostingPart uni DefaultFun = BuiltinCostModel
 
@@ -1300,15 +1324,15 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
           DefaultFunSemanticsVariantE -> consByteStringMeaning_V2
   toBuiltinMeaning semvar SliceByteString
     | ensurable semvar =
-        let sliceByteStringD :: Int -> Int -> CByteString -> BS.ByteString
-            sliceByteStringD start n (CByteString xs) = BS.take n (BS.drop start xs)
+        let sliceByteStringD :: Integer -> Integer -> CByteString -> BS.ByteString
+            sliceByteStringD start n (CByteString xs) = sliceByteStringInteger start n xs
             {-# INLINE sliceByteStringD #-}
          in makeBuiltinMeaning
               sliceByteStringD
               (runCostingFunThreeArguments . paramSliceByteString)
     | otherwise =
-        let sliceByteStringD :: Int -> Int -> BS.ByteString -> BS.ByteString
-            sliceByteStringD start n xs = BS.take n (BS.drop start xs)
+        let sliceByteStringD :: Integer -> Integer -> BS.ByteString -> BS.ByteString
+            sliceByteStringD = sliceByteStringInteger
             {-# INLINE sliceByteStringD #-}
          in makeBuiltinMeaning
               sliceByteStringD
@@ -1322,20 +1346,19 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
           (runCostingFunOneArgument . paramLengthOfByteString)
   toBuiltinMeaning semvar IndexByteString
     | ensurable semvar =
-        let indexByteStringD :: CByteString -> Int -> BuiltinResult Word8
+        let indexByteStringD :: CByteString -> Integer -> BuiltinResult Word8
             indexByteStringD (CByteString xs) n =
               -- See Note [Structural vs operational errors within builtins].
               -- The arguments are going to be printed in the "cause" part of the error
               -- message, so we don't need to repeat them here.
-              maybe (fail "Index out of bounds") pure $ BS.indexMaybe xs n
+              indexByteStringInteger xs n
             {-# INLINE indexByteStringD #-}
          in makeBuiltinMeaning
               indexByteStringD
               (runCostingFunTwoArguments . paramIndexByteString)
     | otherwise =
-        let indexByteStringD :: BS.ByteString -> Int -> BuiltinResult Word8
-            indexByteStringD xs n =
-              maybe (fail "Index out of bounds") pure $ BS.indexMaybe xs n
+        let indexByteStringD :: BS.ByteString -> Integer -> BuiltinResult Word8
+            indexByteStringD = indexByteStringInteger
             {-# INLINE indexByteStringD #-}
          in makeBuiltinMeaning
               indexByteStringD
@@ -2175,14 +2198,14 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
 
   toBuiltinMeaning semvar ReadBit
     | ensurable semvar =
-        let readBitD :: CByteString -> Int -> BuiltinResult Bool
+        let readBitD :: CByteString -> Integer -> BuiltinResult Bool
             readBitD (CByteString xs) = Bitwise.readBit xs
             {-# INLINE readBitD #-}
          in makeBuiltinMeaning
               readBitD
               (runCostingFunTwoArguments . paramReadBit)
     | otherwise =
-        let readBitD :: BS.ByteString -> Int -> BuiltinResult Bool
+        let readBitD :: BS.ByteString -> Integer -> BuiltinResult Bool
             readBitD = Bitwise.readBit
             {-# INLINE readBitD #-}
          in makeBuiltinMeaning
@@ -2385,13 +2408,12 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
         {-# INLINE listToArrayDenotation #-}
      in makeBuiltinMeaning listToArrayDenotation (runCostingFunOneArgument . paramListToArray)
   toBuiltinMeaning _semvar IndexArray =
-    let indexArrayDenotation :: SomeConstant uni (Vector a) -> Int -> BuiltinResult (Opaque val a)
+    let indexArrayDenotation :: SomeConstant uni (Vector a) -> Integer -> BuiltinResult (Opaque val a)
         indexArrayDenotation (SomeConstant (Some (ValueOf uni vec))) n =
           case uni of
-            DefaultUniArray arg -> do
-              case vec Vector.!? n of
-                Nothing -> fail "Array index out of bounds"
-                Just el -> pure $ fromValueOf arg el
+            DefaultUniArray arg
+              | n < 0 || n >= toInteger (Vector.length vec) -> fail "Array index out of bounds"
+              | otherwise -> pure . fromValueOf arg $ vec Vector.! fromInteger n
             _ ->
               -- See Note [Structural vs operational errors within builtins].
               -- The arguments are going to be printed in the "cause" part of the error

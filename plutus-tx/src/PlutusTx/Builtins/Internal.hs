@@ -251,8 +251,26 @@ consByteString n (BuiltinByteString b) = BuiltinByteString $ BS.cons (fromIntegr
   second marks the end. Indices are expected to be 0-indexed, and when the first integer is greater
   than the second, it returns an empty bytestring. -}
 sliceByteString :: BuiltinInteger -> BuiltinInteger -> BuiltinByteString -> BuiltinByteString
-sliceByteString start n (BuiltinByteString b) = BuiltinByteString $ BS.take (fromIntegral n) (BS.drop (fromIntegral start) b)
+sliceByteString start n (BuiltinByteString b) = BuiltinByteString $ sliceByteStringInteger start n b
 {-# OPAQUE sliceByteString #-}
+
+boundedByteStringLength :: Integer -> Int
+boundedByteStringLength n
+  | n <= 0 = 0
+  | n > toInteger (maxBound :: Int) = maxBound
+  | otherwise = fromInteger n
+{-# OPAQUE boundedByteStringLength #-}
+
+sliceByteStringInteger :: Integer -> Integer -> BS.ByteString -> BS.ByteString
+sliceByteStringInteger start n b
+  | n <= 0 = BS.empty
+  | start >= inputLength = BS.empty
+  | start <= 0 = BS.take takeLength b
+  | otherwise = BS.take takeLength . BS.drop (fromInteger start) $ b
+  where
+    inputLength = toInteger $ BS.length b
+    takeLength = boundedByteStringLength n
+{-# OPAQUE sliceByteStringInteger #-}
 
 -- | Returns the length of the provided bytestring.
 lengthOfByteString :: BuiltinByteString -> BuiltinInteger
@@ -262,7 +280,9 @@ lengthOfByteString (BuiltinByteString b) = toInteger $ BS.length b
 {-| Returns the n-th byte from the bytestring. Fails if the given index is not in the range @[0..j)@,
   where @j@ is the length of the bytestring. -}
 indexByteString :: BuiltinByteString -> BuiltinInteger -> BuiltinInteger
-indexByteString (BuiltinByteString b) i = toInteger $ BS.index b (fromInteger i)
+indexByteString (BuiltinByteString b) i
+  | i < 0 || i >= toInteger (BS.length b) = Haskell.error "indexByteString: index out of bounds"
+  | otherwise = toInteger . BS.index b $ fromInteger i
 {-# OPAQUE indexByteString #-}
 
 -- | An empty bytestring.
@@ -672,7 +692,9 @@ listToArray (BuiltinList l) = BuiltinArray (Vector.fromList l)
 {-| Returns the n-th element from the array. Fails if the given index is not in the range @[0..j)@,
   where @j@ is the length of the array. -}
 indexArray :: BuiltinArray a -> BuiltinInteger -> a
-indexArray (BuiltinArray v) i = v Vector.! fromInteger i
+indexArray (BuiltinArray v) i
+  | i < 0 || i >= toInteger (Vector.length v) = Haskell.error "indexArray: index out of bounds"
+  | otherwise = v Vector.! fromInteger i
 {-# OPAQUE indexArray #-}
 
 {-
@@ -1006,7 +1028,7 @@ readBit
   -> BuiltinInteger
   -> Bool
 readBit (BuiltinByteString bs) i =
-  case Bitwise.readBit bs (fromIntegral i) of
+  case Bitwise.readBit bs i of
     BuiltinFailure logs err ->
       traceAll (logs <> pure (display err)) $
         Haskell.error "readBit errored."
@@ -1136,7 +1158,9 @@ scaleValue c (BuiltinValue val) =
 {-# OPAQUE scaleValue #-}
 
 caseInteger :: Integer -> [a] -> a
-caseInteger i b = b !! fromIntegral i
+caseInteger i b
+  | i < 0 || i >= toInteger (length b) = Haskell.error "caseInteger: index out of bounds"
+  | otherwise = b !! fromInteger i
 {-# OPAQUE caseInteger #-}
 
 {-| Case matching on a builtin pair. Continuation is needed here to make
