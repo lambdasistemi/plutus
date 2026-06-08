@@ -56,7 +56,6 @@ import GHC.Exts
   , intToInt8#
   , isTrue#
   , neWord8#
-  , quotInt#
   , quotRemInt#
   , sizeofByteArray#
   , word2Int#
@@ -146,6 +145,10 @@ data IntegerToByteStringError
 endiannessArgToByteOrder :: Bool -> ByteOrder
 endiannessArgToByteOrder b = if b then BigEndian else LittleEndian
 
+targetWordSizeInBits :: Int
+targetWordSizeInBits = Bits.finiteBitSize (0 :: Int)
+{-# INLINE targetWordSizeInBits #-}
+
 -- For performance and clarity, the endianness argument uses
 -- 'ByteOrder', and the length argument is an 'Int'.
 -- This may not actually be unsafe, but it shouldn't be used outside this module.
@@ -162,10 +165,11 @@ unsafeIntegerToByteString requestedByteOrder requestedLength input = case input 
           -- we need to represent any given (positive) `Int#` will
           -- directly depend on the number of leading zeroes: every full
           -- 8 leading zeroes means a byte we _don't_ need to use. We
-          -- can then figure out the number of unused bytes (all-zero)
-          -- by taking the quotient of the leading zero count by 8.
+          -- use the target word size so this stays correct on wasm32,
+          -- where `Int#`/`Word#` are 32 bits instead of 64.
           let counted# = clz# (int2Word# i#)
-              minLength = 8 - I# (quotInt# (word2Int# counted#) 8#)
+              bitLength = targetWordSizeInBits - I# (word2Int# counted#)
+              minLength = (bitLength + 7) `quot` 8
            in if
                 | requestedLength == 0 -> Right (mkSmall minLength i#)
                 | requestedLength < minLength -> Left NotEnoughDigits
@@ -504,18 +508,20 @@ complementByteString bs = unsafeDupablePerformIO . BS.useAsCStringLen bs $ \(src
 {-# INLINEABLE complementByteString #-}
 
 -- | Bit read at index, as per [CIP-122](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0122)
-readBit :: ByteString -> Int -> BuiltinResult Bool
+readBit :: ByteString -> Integer -> BuiltinResult Bool
 readBit bs ix
   | ix < 0 = do
       emit "readBit: index out of bounds"
       emit $ "Index: " <> (pack . show $ ix)
       builtinResultFailure
-  | ix >= len * 8 = do
+  | ix >= toInteger len * 8 = do
       emit "readBit: index out of bounds"
       emit $ "Index: " <> (pack . show $ ix)
       builtinResultFailure
   | otherwise = do
-      let (bigIx, littleIx) = ix `quotRem` 8
+      let (bigIxInteger, littleIxInteger) = ix `quotRem` 8
+      let bigIx = fromInteger bigIxInteger
+      let littleIx = fromInteger littleIxInteger
       let flipIx = len - bigIx - 1
       pure $ Bits.testBit (BS.index bs flipIx) littleIx
   where

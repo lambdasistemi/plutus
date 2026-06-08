@@ -1064,6 +1064,30 @@ throw an "operational" evaluation error). Please respect the distinction when ad
 functions.
 -}
 
+boundedByteStringLength :: Integer -> Int
+boundedByteStringLength n
+  | n <= 0 = 0
+  | n > toInteger (maxBound :: Int) = maxBound
+  | otherwise = fromInteger n
+{-# INLINE boundedByteStringLength #-}
+
+sliceByteStringInteger :: Integer -> Integer -> BS.ByteString -> BS.ByteString
+sliceByteStringInteger start n xs
+  | n <= 0 = mempty
+  | start >= inputLength = mempty
+  | start <= 0 = BS.take takeLength xs
+  | otherwise = BS.take takeLength . BS.drop (fromInteger start) $ xs
+  where
+    inputLength = toInteger $ BS.length xs
+    takeLength = boundedByteStringLength n
+{-# INLINE sliceByteStringInteger #-}
+
+indexByteStringInteger :: BS.ByteString -> Integer -> BuiltinResult Word8
+indexByteStringInteger xs n
+  | n < 0 || n >= toInteger (BS.length xs) = fail "Index out of bounds"
+  | otherwise = pure . BS.index xs $ fromInteger n
+{-# INLINE indexByteStringInteger #-}
+
 instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
   type CostingPart uni DefaultFun = BuiltinCostModel
 
@@ -1201,8 +1225,8 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
           DefaultFunSemanticsVariantD -> consByteStringMeaning_V1
           DefaultFunSemanticsVariantE -> consByteStringMeaning_V2
   toBuiltinMeaning _semvar SliceByteString =
-    let sliceByteStringDenotation :: Int64 -> Int64 -> BS.ByteString -> BuiltinResult BS.ByteString
-        sliceByteStringDenotation start n xs = pure $ BS.take (fromIntegral n) (BS.drop (fromIntegral start) xs)
+    let sliceByteStringDenotation :: Integer -> Integer -> BS.ByteString -> BuiltinResult BS.ByteString
+        sliceByteStringDenotation start n xs = pure $ sliceByteStringInteger start n xs
         {-# INLINE sliceByteStringDenotation #-}
      in makeBuiltinMeaning
           sliceByteStringDenotation
@@ -1215,12 +1239,11 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
           lengthOfByteStringDenotation
           (runCostingFunOneArgument . paramLengthOfByteString)
   toBuiltinMeaning _semvar IndexByteString =
-    let indexByteStringDenotation :: BS.ByteString -> Int64 -> BuiltinResult Word8
+    let indexByteStringDenotation :: BS.ByteString -> Integer -> BuiltinResult Word8
         -- See Note [Structural vs operational errors within builtins].
         -- The arguments are going to be printed in the "cause" part of the error
         -- message, so we don't need to repeat them here.
-        indexByteStringDenotation xs n =
-          maybe (fail "Index out of bounds") pure $ BS.indexMaybe xs (fromIntegral n)
+        indexByteStringDenotation = indexByteStringInteger
         {-# INLINE indexByteStringDenotation #-}
      in makeBuiltinMeaning
           indexByteStringDenotation
@@ -1810,8 +1833,8 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
   -- Bitwise operations
 
   toBuiltinMeaning _semvar ReadBit =
-    let readBitDenotation :: BS.ByteString -> Int64 -> BuiltinResult Bool
-        readBitDenotation bs = Bitwise.readBit bs . fromIntegral
+    let readBitDenotation :: BS.ByteString -> Integer -> BuiltinResult Bool
+        readBitDenotation = Bitwise.readBit
         {-# INLINE readBitDenotation #-}
      in makeBuiltinMeaning
           readBitDenotation
@@ -1953,13 +1976,12 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
         {-# INLINE listToArrayDenotation #-}
      in makeBuiltinMeaning listToArrayDenotation (runCostingFunOneArgument . paramListToArray)
   toBuiltinMeaning _semvar IndexArray =
-    let indexArrayDenotation :: SomeConstant uni (Vector a) -> Int64 -> BuiltinResult (Opaque val a)
+    let indexArrayDenotation :: SomeConstant uni (Vector a) -> Integer -> BuiltinResult (Opaque val a)
         indexArrayDenotation (SomeConstant (Some (ValueOf uni vec))) n =
           case uni of
-            DefaultUniArray arg -> do
-              case vec Vector.!? fromIntegral n of
-                Nothing -> fail "Array index out of bounds"
-                Just el -> pure $ fromValueOf arg el
+            DefaultUniArray arg
+              | n < 0 || n >= toInteger (Vector.length vec) -> fail "Array index out of bounds"
+              | otherwise -> pure . fromValueOf arg $ vec Vector.! fromInteger n
             _ ->
               -- See Note [Structural vs operational errors within builtins].
               -- The arguments are going to be printed in the "cause" part of the error
