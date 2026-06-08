@@ -1,9 +1,12 @@
 -- editorconfig-checker-disable-file
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
+
+#include "MachDeps.h"
 -- This ensures that we don't put *anything* about these functions into the interface
 -- file, otherwise GHC can be clever about the ones that are always error, even though
 -- they're OPAQUE!
@@ -252,8 +255,10 @@ consByteString n (BuiltinByteString b)
 
 {-| Slices the given bytestring. The first integer marks the beginning index and the
   second marks the end. Indices are expected to be 0-indexed, and when the first integer is greater
-  than the second, it returns an empty bytestring. Fails only if either integer does not fit in a
-  machine 'Int', matching the builtin. -}
+  than the second, it returns an empty bytestring. On 64-bit platforms it fails if either integer
+  does not fit in a machine 'Int'; on 32-bit platforms it checks in the 'Integer' domain before
+  narrowing, matching the corresponding builtin denotation. -}
+#if WORD_SIZE_IN_BITS == 64
 sliceByteString :: BuiltinInteger -> BuiltinInteger -> BuiltinByteString -> BuiltinByteString
 sliceByteString start n (BuiltinByteString b)
   | fitsInt start && fitsInt n =
@@ -262,6 +267,31 @@ sliceByteString start n (BuiltinByteString b)
   where
     fitsInt x = toInteger (minBound :: Int) <= x && x <= toInteger (maxBound :: Int)
 {-# OPAQUE sliceByteString #-}
+#else
+-- On 32-bit platforms indices and lengths must be bounds-checked in 'Integer'
+-- space before narrowing to the platform 'Int', which would otherwise wrap.
+sliceByteString :: BuiltinInteger -> BuiltinInteger -> BuiltinByteString -> BuiltinByteString
+sliceByteString start n (BuiltinByteString b) = BuiltinByteString $ sliceByteStringInteger start n b
+{-# OPAQUE sliceByteString #-}
+
+boundedByteStringLength :: Integer -> Int
+boundedByteStringLength n
+  | n <= 0 = 0
+  | n > toInteger (maxBound :: Int) = maxBound
+  | otherwise = fromInteger n
+{-# OPAQUE boundedByteStringLength #-}
+
+sliceByteStringInteger :: Integer -> Integer -> BS.ByteString -> BS.ByteString
+sliceByteStringInteger start n b
+  | n <= 0 = BS.empty
+  | start >= inputLength = BS.empty
+  | start <= 0 = BS.take takeLength b
+  | otherwise = BS.take takeLength . BS.drop (fromInteger start) $ b
+  where
+    inputLength = toInteger $ BS.length b
+    takeLength = boundedByteStringLength n
+{-# OPAQUE sliceByteStringInteger #-}
+#endif
 
 -- | Returns the length of the provided bytestring.
 lengthOfByteString :: BuiltinByteString -> BuiltinInteger
