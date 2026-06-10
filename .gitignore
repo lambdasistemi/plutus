@@ -59,6 +59,11 @@ __pycache__
 
 # NodeJS (used by scripts/blueprints/check-json-schemas.js as it depends on the AJV nodejs lib)
 node_modules
+wasm32-spa/node_modules/
+wasm32-spa/dist/
+wasm32-spa/result-wasm-uplc
+wasm32-spa/src/assets/uplc.wasm
+wasm32-spa/test-results/
 
 # Nix
 result*
