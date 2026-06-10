@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Flat.Spec (tests) where
@@ -26,7 +27,11 @@ import PlutusCore.Default (DefaultFun (..), DefaultUni (..))
 import PlutusCore.Flat qualified as Flat
 import PlutusCore.Flat.Bits (asBytes, bits)
 import Test.Tasty
+#ifdef wasm32_HOST_ARCH
+import Test.Tasty.Golden (goldenVsString)
+#else
 import Test.Tasty.Golden (goldenVsStringDiff)
+#endif
 import Test.Tasty.HUnit
 import Universe (SomeTypeIn (..))
 
@@ -41,10 +46,18 @@ These capture the exact byte representation to detect encoding changes.
 Use @cabal test plutus-core-test --test-options --accept@ to update golden files. -}
 test_flatStaticEncoding :: TestTree
 test_flatStaticEncoding =
+#ifdef wasm32_HOST_ARCH
+  -- WASI cannot spawn processes, so compare bytes purely instead of
+  -- shelling out to `diff`.
+  goldenVsString
+    "Flat stable encoding"
+    "plutus-core/test/Flat/golden/encoding-stability.golden"
+#else
   goldenVsStringDiff
     "Flat stable encoding"
     (\expected actual -> ["diff", "-u", expected, actual])
     "plutus-core/test/Flat/golden/encoding-stability.golden"
+#endif
     ( pure . LBS.pack $
         unlines
           [ "-- Core types"
