@@ -1,4 +1,5 @@
--- wasm32-wasi cross-build of plutus-core and its test suite.
+-- wasm32-wasi cross-build of the uplc evaluator (plutus-executables) — adds plutus-executables
+-- and friends to the test project so the shared test solve stays plutus-core-only.
 -- Pattern from /code/cardano-ledger-wasi/nix/wasm/smoke/cabal-wasm.project,
 -- SRP pins mirrored from /code/cardano-ledger-wasi/nix/wasm/forks.json.
 --
@@ -25,6 +26,10 @@ index-state:
   , cardano-haskell-packages 2026-04-15T11:20:53Z
 
 packages: plutus-core
+          plutus-executables
+          plutus-ledger-api
+          plutus-metatheory
+          plutus-tx
 
 allow-newer: *:template-haskell, *:base, *:deepseq, *:ghc-prim, *:time, *:text
 

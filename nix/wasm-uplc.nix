@@ -14,6 +14,7 @@ let
 in
 mkPlutusWasmTests {
   inherit src satintSrc;
+  projectFile = "cabal-wasm-uplc.project";
   pname = "plutus-wasm-uplc";
   depsPname = "plutus-wasm-uplc-deps";
   prebuiltDepsPname = "plutus-wasm-uplc-prebuilt-deps";
