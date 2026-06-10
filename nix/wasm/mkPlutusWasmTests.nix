@@ -13,8 +13,20 @@
 
 { src
 , satintSrc
-, suites
+, suites ? [ ]
+, components ? map
+    (suite: {
+      target = "plutus-core:test:${suite}";
+      wasmName = suite;
+      outputName = suite;
+    })
+    suites
 , dependenciesHash
+, pname ? "plutus-wasm-tests"
+, depsPname ? "${pname}-deps"
+, prebuiltDepsPname ? "${pname}-prebuilt-deps"
+, cleanupPackageNames ? [ "plutus-core" ]
+, sourcePatch ? ""
 , projectFile ? "cabal-wasm.project"
 }:
 
@@ -23,7 +35,7 @@ let
   fragment = import ./cabal-project-fragment.nix { inherit lib; };
   hackageIndexState = fragment.indexState.hackage;
 
-  buildTargets = map (suite: "plutus-core:test:${suite}") suites;
+  buildTargets = map (component: component.target) components;
   buildTargetsArg = lib.concatStringsSep " \\\n      " buildTargets;
 
   truncatedHackageIndex = pkgs.fetchurl {
@@ -232,12 +244,15 @@ let
     + ''
       mkdir -p "$out/plutus-core/satint"
       cp -rL ${satintSrc} "$out/plutus-core/satint/src"
+      ${sourcePatch}
     ''
   );
 
   renamedSrc = pkgs.runCommand sandboxName { } ''
     mkdir -p $out
     cp -rL ${src}/. $out/
+    chmod -R u+w $out
+    ${sourcePatch}
   '';
 
   fetchFork = name:
@@ -300,7 +315,7 @@ let
   '';
 
   deps = pkgs.stdenv.mkDerivation {
-    pname = "plutus-wasm-tests-deps";
+    pname = depsPname;
     version = "1.65.0.0";
     src = srcMetadata;
 
@@ -343,7 +358,7 @@ let
   };
 
   prebuiltDeps = pkgs.stdenv.mkDerivation {
-    pname = "plutus-wasm-tests-prebuilt-deps";
+    pname = prebuiltDepsPname;
     version = "1.65.0.0";
     src = srcMetadata;
 
@@ -385,7 +400,7 @@ let
   };
 
   wasm = pkgs.stdenv.mkDerivation {
-    pname = "plutus-wasm-tests";
+    pname = pname;
     version = "1.65.0.0";
     src = renamedSrc;
 
@@ -408,16 +423,20 @@ let
       cp ${prebuiltDeps}/${projectFile} ${projectFile}
       chmod u+w ${projectFile}
 
-      find dist-newstyle/build -mindepth 3 -maxdepth 3 -type d \
-        -path '*/wasm32-wasi/*' -name 'plutus-core-*' \
-        -exec rm -rf {} +
-      find dist-newstyle -name 'package.conf.d' -exec sh -c '
-        for dir; do
-          for entry in "$dir"/plutus-core-*-inplace*.conf; do
-            [ -e "$entry" ] && rm -f "$entry"
+      ${lib.concatMapStringsSep "\n" (packageName: ''
+        find dist-newstyle/build -mindepth 3 -maxdepth 3 -type d \
+          -path '*/wasm32-wasi/*' -name '${packageName}-*' \
+          -exec rm -rf {} +
+        find dist-newstyle -name 'package.conf.d' -exec sh -c '
+          package_name="$1"
+          shift
+          for dir; do
+            for entry in "$dir"/"$package_name"-*-inplace*.conf; do
+              [ -e "$entry" ] && rm -f "$entry"
+            done
           done
-        done
-      ' sh {} +
+        ' sh '${packageName}' {} +
+      '') cleanupPackageNames}
     '';
 
     buildPhase = ''
@@ -430,14 +449,14 @@ let
 
     installPhase = ''
       mkdir -p $out
-      for suite in ${lib.concatStringsSep " " suites}; do
-        wasm=$(find dist-newstyle -name "$suite.wasm" -type f | head -1)
+      ${lib.concatMapStringsSep "\n" (component: ''
+        wasm=$(find dist-newstyle -name "${component.wasmName}.wasm" -type f | head -1)
         if [ -z "$wasm" ]; then
-          echo "missing wasm output for $suite" >&2
+          echo "missing wasm output for ${component.wasmName}" >&2
           exit 1
         fi
-        cp "$wasm" "$out/$suite.wasm"
-      done
+        cp "$wasm" "$out/${component.outputName}.wasm"
+      '') components}
     '';
 
     passthru = {

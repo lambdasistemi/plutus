@@ -67,6 +67,17 @@ let
       satintSrc = ../plutus-core/satint/src;
     });
 
+  wasm-uplc-package = lib.optionalAttrs pkgs.stdenv.isLinux {
+    wasm-uplc = import ./wasm-uplc.nix {
+      inherit pkgs lib;
+      ghcWasmMeta = inputs.ghc-wasm-meta.packages.${system}.all_9_12;
+      wasiSdk = inputs.ghc-wasm-meta.packages.${system}.wasi-sdk;
+      chap = inputs.CHaP;
+      src = ../.;
+      satintSrc = ../plutus-core/satint/src;
+    };
+  };
+
   wasm-toolchain-packages = lib.optionalAttrs pkgs.stdenv.isLinux {
     wasm-toolchain = inputs.ghc-wasm-meta.packages.${system}.all_9_12;
   };
@@ -110,6 +121,7 @@ let
     lib.optionalAttrs pkgs.stdenv.isLinux static-haskell-packages //
     wasm-toolchain-packages //
     wasm-test-packages //
+    wasm-uplc-package //
     exposed-haskell-packages //
     extra-artifacts;
 
