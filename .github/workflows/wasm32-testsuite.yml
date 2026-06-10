@@ -1,6 +1,12 @@
 name: "🕸️ Wasm32 Testsuite"
 
 on:
+  # push-triggered workflows run from the pushed branch (no default-branch
+  # requirement, unlike schedule/workflow_dispatch) — this is what actually
+  # fires the suite and populates the cachix cache when a release branch lands.
+  push:
+    branches:
+      - 'wasm32-**'
   schedule:
     - cron: 0 3 * * *
   workflow_dispatch:
