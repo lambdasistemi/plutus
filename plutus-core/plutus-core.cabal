@@ -371,13 +371,14 @@ test-suite plutus-core-test
   import:           lang
 
   -- needs linux 'diff' available
-  if (os(windows) || arch(wasm32))
+  if os(windows)
     buildable: False
 
   type:             exitcode-stdio-1.0
   main-is:          Spec.hs
   hs-source-dirs:   plutus-core/test
-  ghc-options:      -threaded -rtsopts -with-rtsopts=-N
+  if !arch(wasm32)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
   other-modules:
     CBOR.DataStability
     Check.Spec
@@ -430,13 +431,14 @@ test-suite untyped-plutus-core-test
   import:         lang
 
   -- needs linux 'diff' available
-  if (os(windows) || arch(wasm32))
+  if os(windows)
     buildable: False
 
   type:           exitcode-stdio-1.0
   main-is:        Spec.hs
   hs-source-dirs: untyped-plutus-core/test
-  ghc-options:    -O2 -threaded -rtsopts -with-rtsopts=-N
+  if !arch(wasm32)
+    ghc-options: -O2 -threaded -rtsopts -with-rtsopts=-N
   build-depends:
     , base                                     >=4.9 && <5
     , plutus-core:untyped-plutus-core-testlib
@@ -450,7 +452,7 @@ library untyped-plutus-core-testlib
   hs-source-dirs:     untyped-plutus-core/testlib
 
   -- needs linux 'diff' available
-  if (os(windows) || arch(wasm32))
+  if os(windows)
     buildable: False
 
   exposed-modules:
@@ -628,13 +630,14 @@ test-suite plutus-ir-test
   import:             lang
 
   -- needs linux 'diff' available
-  if (os(windows) || arch(wasm32))
+  if os(windows)
     buildable: False
 
   type:               exitcode-stdio-1.0
   main-is:            Driver.hs
   hs-source-dirs:     plutus-ir/test
-  ghc-options:        -threaded -rtsopts -with-rtsopts=-N
+  if !arch(wasm32)
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N
   other-modules:
     PlutusCore.Generators.QuickCheck.BuiltinsTests
     PlutusCore.Generators.QuickCheck.SubstitutionTests

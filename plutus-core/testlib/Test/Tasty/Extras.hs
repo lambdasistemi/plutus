@@ -54,7 +54,11 @@ import System.FilePath (joinPath, (</>))
 import System.Info (compilerVersion)
 import Test.Tasty (TestName, TestTree, testGroup)
 import Test.Tasty.ExpectedFailure (ignoreTest)
+#ifdef wasm32_HOST_ARCH
+import Test.Tasty.Golden (createDirectoriesAndWriteFile, goldenVsString)
+#else
 import Test.Tasty.Golden (createDirectoriesAndWriteFile, goldenVsStringDiff)
+#endif
 import Test.Tasty.Golden.Advanced (goldenTest)
 import Test.Tasty.HUnit (Assertion, assertFailure)
 import Text.Pretty.Simple (OutputOptions (..), defaultOutputOptionsDarkBg, pShowOpt)
@@ -206,8 +210,15 @@ goldenVsText name ref = goldenVsTextM name ref . pure
 -- | Check the contents of a file against a 'Text'.
 goldenVsTextM :: TestName -> FilePath -> IO Text -> TestTree
 goldenVsTextM name ref val =
+#ifdef wasm32_HOST_ARCH
+    -- WASI cannot spawn processes, so compare bytes purely instead of
+    -- shelling out to `diff`.
+    goldenVsString name ref $
+        BSL.fromStrict . encodeUtf8 <$> val
+#else
     goldenVsStringDiff name (\expected actual -> ["diff", "-u", expected, actual]) ref $
         BSL.fromStrict . encodeUtf8 <$> val
+#endif
 
 -- | Check the contents of a file against a 'Doc'.
 goldenVsDoc :: TestName -> FilePath -> Doc ann -> TestTree
