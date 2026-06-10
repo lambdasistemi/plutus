@@ -21,7 +21,7 @@ active-repositories:
   , cardano-haskell-packages:override
 
 index-state:
-  , hackage.haskell.org 2026-04-15T00:00:00Z
+  , hackage.haskell.org 2026-04-11T20:28:03Z
   , cardano-haskell-packages 2026-04-15T11:20:53Z
 
 packages: plutus-core

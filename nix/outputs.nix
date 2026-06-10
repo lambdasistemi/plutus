@@ -57,6 +57,20 @@ let
     musl64-plutus = project.projectCross.musl64.hsPkgs.plutus-executables.components.exes.plutus;
   };
 
+  wasm-test-packages = lib.optionalAttrs pkgs.stdenv.isLinux
+    (import ./wasm-tests.nix {
+      inherit pkgs lib;
+      ghcWasmMeta = inputs.ghc-wasm-meta.packages.${system}.all_9_12;
+      wasiSdk = inputs.ghc-wasm-meta.packages.${system}.wasi-sdk;
+      chap = inputs.CHaP;
+      src = ../.;
+      satintSrc = ../plutus-core/satint/src;
+    });
+
+  wasm-toolchain-packages = lib.optionalAttrs pkgs.stdenv.isLinux {
+    wasm-toolchain = inputs.ghc-wasm-meta.packages.${system}.all_9_12;
+  };
+
   windows-hydra-jobs = {
     ghc96-mingsW64 = removeAttrs
       (project.projectCross.mingwW64.flake { }).hydraJobs.ghc96
@@ -94,6 +108,8 @@ let
 
   packages =
     lib.optionalAttrs pkgs.stdenv.isLinux static-haskell-packages //
+    wasm-toolchain-packages //
+    wasm-test-packages //
     exposed-haskell-packages //
     extra-artifacts;
 
