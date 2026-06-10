@@ -9,6 +9,8 @@
 -- Sure GHC, I'm enabling the extension just so that you can warn me about its usages.
 {-# OPTIONS_GHC -fno-warn-partial-type-signatures #-}
 
+#include "MachDeps.h"
+
 -- | Tests for all kinds of built-in functions.
 module Evaluation.Builtins.Definition
   ( test_definition
@@ -582,6 +584,7 @@ test_TrackCostsWith cat len checkTerm =
     checkTerm term
 
 -- | Test that individual budgets are picked up by GC while spending is still ongoing.
+#if WORD_SIZE_IN_BITS == 64
 test_TrackCostsRestricting :: TestTree
 test_TrackCostsRestricting =
   let n = 10000
@@ -599,6 +602,7 @@ test_TrackCostsRestricting =
                     , "But got: " ++ show actual
                     ]
             assertBool err $ expected < actual
+#endif
 
 test_TrackCostsRetaining :: TestTree
 test_TrackCostsRetaining =
@@ -2308,7 +2312,12 @@ test_definition =
     , test_BuiltinPair
     , test_SwapEls
     , test_IdBuiltinData
+#if WORD_SIZE_IN_BITS == 64
     , test_TrackCostsRestricting
+#else
+    -- WASI: single-threaded 32-bit RTS does not create enough GC
+    -- pressure for this collection-observation assertion.
+#endif
     , ignoreTestWhenHpcEnabled test_TrackCostsRetaining
     , test_SerialiseDataImpossible
     , test_fixId
