@@ -593,24 +593,27 @@ instance KnownBuiltinTypeIn DefaultUni term Integer => ReadKnownIn DefaultUni te
     readKnown term = fromIntegral @Word64 @Word <$> readKnown term
     {-# INLINE readKnown #-}
 #else
--- On non-64-bit platforms (e.g. wasm32), UPLC evaluation is unsupported, but
--- we still need these instances so that the builtin machinery compiles.
+-- On non-64-bit platforms (e.g. wasm32) lifting an 'Int' is lossless as on
+-- 64-bit ones, while unlifting bounds-checks against the platform 'Int'
+-- range like every other 'Integral' instance here. No default builtin
+-- unlifts a platform 'Int' (the denotations use fixed-width or 'Integer'
+-- types), so these instances exist for completeness and user extensions.
 deriving via AsInteger Int instance
         KnownTypeAst tyname DefaultUni Int
 instance KnownBuiltinTypeIn DefaultUni term Integer => MakeKnownIn DefaultUni term Int where
-    makeKnown = error "UPLC evaluation is not supported on non-64-bit platforms"
+    makeKnown = makeKnownAsInteger
     {-# INLINE makeKnown #-}
 instance KnownBuiltinTypeIn DefaultUni term Integer => ReadKnownIn DefaultUni term Int where
-    readKnown = error "UPLC evaluation is not supported on non-64-bit platforms"
+    readKnown = readKnownAsInteger
     {-# INLINE readKnown #-}
 
 deriving via AsInteger Word instance
         KnownTypeAst tyname DefaultUni Word
 instance KnownBuiltinTypeIn DefaultUni term Integer => MakeKnownIn DefaultUni term Word where
-    makeKnown = error "UPLC evaluation is not supported on non-64-bit platforms"
+    makeKnown = makeKnownAsInteger
     {-# INLINE makeKnown #-}
 instance KnownBuiltinTypeIn DefaultUni term Integer => ReadKnownIn DefaultUni term Word where
-    readKnown = error "UPLC evaluation is not supported on non-64-bit platforms"
+    readKnown = readKnownAsInteger
     {-# INLINE readKnown #-}
 #endif
 

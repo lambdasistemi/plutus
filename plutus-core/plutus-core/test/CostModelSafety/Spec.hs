@@ -52,6 +52,7 @@ import UntypedPlutusCore.Evaluation.Machine.Cek.CekMachineCosts
   )
 
 import Data.ByteString qualified as BS
+import Data.Int (Int64)
 import Data.Functor.Identity (Identity (..))
 import Data.Kind qualified as GHC (Type)
 import Data.List.Extra (enumerate)
@@ -137,6 +138,7 @@ smallConstant tr
   | Just HRefl <- eqTypeRep tr (typeRep @Integer) = SomeConst (0 :: Integer)
   | Just HRefl <- eqTypeRep tr (typeRep @Natural) = SomeConst (0 :: Integer)
   | Just HRefl <- eqTypeRep tr (typeRep @Int) = SomeConst (0 :: Integer)
+  | Just HRefl <- eqTypeRep tr (typeRep @Int64) = SomeConst (0 :: Integer)
   | Just HRefl <- eqTypeRep tr (typeRep @Word8) = SomeConst (0 :: Integer)
   | Just HRefl <- eqTypeRep tr (typeRep @Word64) = SomeConst (0 :: Integer)
   | Just HRefl <- eqTypeRep tr (typeRep @NumBytesCostedAsNumWords) = SomeConst (0 :: Integer)
