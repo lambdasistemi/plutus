@@ -43,7 +43,7 @@ import Test.E
 import Test.E.Arbitrary ()
 import Test.E.Flat
 import Test.Tasty
-import Test.Tasty.Golden (goldenVsStringDiff)
+import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck as QC hiding (getSize)
 -- import Test.QuickCheck.Arbitrary
@@ -404,8 +404,7 @@ testContainers =
 -- since their encoding stability is not critical (they are never on-chain).
 -- Use @cabal test flat-test --test-options --accept@ to update golden files.
 testEncodingStability =
-  goldenVsStringDiff "stable byte encodings"
-    (\expected actual -> ["diff", "-u", expected, actual])
+  goldenVsString "stable byte encodings"
     "flat/test/golden/encoding-stability.golden"
     (pure . L.pack . map (fromIntegral . ord) $ unlines
       [ enc "Nothing :: Maybe Bool" (Nothing :: Maybe Bool)
@@ -914,4 +913,3 @@ test_preAlignedRoundtrip = do
   case decoded of
     Right pa -> preValue pa @?= 42
     Left err -> assertFailure $ "decode failed: " ++ show err
-
