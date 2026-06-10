@@ -1,1 +1,1 @@
-forall a. SomeConstant DefaultUni (Vector (TyVarRep * ('TyNameRep * "a" 0))) -> Int64 -> BuiltinResult (Opaque Val (TyVarRep * ('TyNameRep * "a" 0)))
+forall a. SomeConstant DefaultUni (Vector (TyVarRep * ('TyNameRep * "a" 0))) -> Integer -> BuiltinResult (Opaque Val (TyVarRep * ('TyNameRep * "a" 0)))

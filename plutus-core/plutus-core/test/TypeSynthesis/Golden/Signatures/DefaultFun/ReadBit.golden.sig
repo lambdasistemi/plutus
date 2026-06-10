@@ -1,1 +1,1 @@
-ByteString -> Int64 -> BuiltinResult Bool
+ByteString -> Integer -> BuiltinResult Bool
