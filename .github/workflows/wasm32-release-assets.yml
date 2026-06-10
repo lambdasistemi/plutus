@@ -52,8 +52,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="${{ github.event.inputs.tag || github.ref_name }}"
-          gh release view "$tag" >/dev/null 2>&1 \
-            || gh release create "$tag" --title "$tag" \
-                 --notes "Automated wasm32 release. Usage and what changed: see WASM32.md."
-          gh release upload "$tag" artifacts/uplc.wasm artifacts/SHA256SUMS --clobber
+          export TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          # gh is not on the self-hosted nixos runner's PATH; provide it via nix.
+          nix shell --accept-flake-config nixpkgs#gh --command bash -euo pipefail -c '
+            gh release view "$TAG" >/dev/null 2>&1 \
+              || gh release create "$TAG" --title "$TAG" \
+                   --notes "Automated wasm32 release. Usage and what changed: see WASM32.md."
+            gh release upload "$TAG" artifacts/uplc.wasm artifacts/SHA256SUMS --clobber
+          '
