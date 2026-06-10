@@ -6,6 +6,13 @@
 
 == Introduction
 
+[NOTE]
+====
+This is a fork that makes Plutus *evaluate correctly on wasm32* (32-bit / browser targets),
+byte-identical to the 64-bit chain. For what changed, how to pin it as a dependency, and the prebuilt
+`uplc.wasm` evaluator, see link:WASM32.md[WASM32.md].
+====
+
 Plutus Core is the scripting language embedded in the Cardano ledger and forms the basis of the Plutus Platform, an application development platform for developing distributed applications using the Cardano blockchain.
 
 For more information about the projects, see the <<user-documentation>>.

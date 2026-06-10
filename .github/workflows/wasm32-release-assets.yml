@@ -1,0 +1,59 @@
+name: "🕸️ Wasm32 Release Assets"
+
+# On each `*-wasm32` release tag, build the wasm evaluator artifact and attach
+# it to the GitHub Release. Tag-push triggers run from the pushed tag's tree
+# (no default-branch requirement, unlike `on: release`), which matches the
+# fork's branch-per-upstream-version release model. Mirrors
+# cardano-ledger-wasi's release-assets pattern.
+
+on:
+  push:
+    tags:
+      - '*-wasm32'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing *-wasm32 tag to (re)build assets for
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-wasm-assets:
+    name: Build & attach uplc.wasm
+    runs-on: nixos
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: paolino
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build the uplc evaluator (wasm32-wasi)
+        run: nix build --quiet --accept-flake-config .#wasm-uplc -o result-wasm-uplc
+
+      - name: Stage artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp -L result-wasm-uplc/uplc.wasm artifacts/uplc.wasm
+          ( cd artifacts && sha256sum -- * > SHA256SUMS )
+
+      - name: Create release if missing, then attach assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          gh release view "$tag" >/dev/null 2>&1 \
+            || gh release create "$tag" --title "$tag" \
+                 --notes "Automated wasm32 release. Usage and what changed: see WASM32.md."
+          gh release upload "$tag" artifacts/uplc.wasm artifacts/SHA256SUMS --clobber
