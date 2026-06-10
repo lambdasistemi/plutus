@@ -1,10 +1,13 @@
 -- editorconfig-checker-disable-file
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
+
+#include "MachDeps.h"
 
 module TypeSynthesis.Spec
   ( test_typecheck
@@ -238,7 +241,15 @@ test_dumpTypeRepAllFun nameSet semVarChanges semVar =
 test_dumpTypeRepDefaultFuns :: TestTree
 test_dumpTypeRepDefaultFuns =
   testGroup "builtin signatures" . pure $
+#if WORD_SIZE_IN_BITS == 64
     runTestNested ["plutus-core", "test", "TypeSynthesis", "Golden", "Signatures"] $
+#else
+    -- Denotation signatures legitimately differ on 32-bit platforms (the
+    -- 32-bit-correct builtins use fixed-width or 'Integer' types instead of
+    -- the platform 'Int'); a separate golden set keeps the difference
+    -- explicit and reviewable: diff -r Signatures Signatures32.
+    runTestNested ["plutus-core", "test", "TypeSynthesis", "Golden", "Signatures32"] $
+#endif
       concat
         [ let semVarChanges =
                 -- Keep the inner lists sorted.

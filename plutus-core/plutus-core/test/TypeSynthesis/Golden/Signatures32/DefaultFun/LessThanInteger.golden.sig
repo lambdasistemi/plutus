@@ -1,0 +1,1 @@
+CInteger -> CInteger -> Bool

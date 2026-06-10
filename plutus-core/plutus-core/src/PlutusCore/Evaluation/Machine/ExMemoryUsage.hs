@@ -1,9 +1,12 @@
 -- editorconfig-checker-disable-file
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+
+#include "MachDeps.h"
 
 module PlutusCore.Evaluation.Machine.ExMemoryUsage
   ( CostRose (..)
@@ -36,6 +39,9 @@ import Data.Text qualified as T
 import Data.Text.Internal qualified as TI
 import Data.Vector.Strict (Vector)
 import Data.Vector.Strict qualified as Vector
+#if WORD_SIZE_IN_BITS != 64
+import Data.Int (Int64)
+#endif
 import Data.Word
 import GHC.Natural
 import GHC.Num.Integer (integerLog2)
@@ -270,6 +276,14 @@ instance ExMemoryUsage Word8 where
 instance ExMemoryUsage Word64 where
   memoryUsage _ = singletonRose 1
   {-# INLINE memoryUsage #-}
+
+#if WORD_SIZE_IN_BITS != 64
+-- On 32-bit platforms some denotations take 'Int64' where 64-bit ones take
+-- the platform 'Int'; both cost one word, keeping budgets identical.
+instance ExMemoryUsage Int64 where
+  memoryUsage _ = singletonRose 1
+  {-# INLINE memoryUsage #-}
+#endif
 
 {-| When invoking a built-in function, a value of type `NumBytesCostedAsNumWords`
    can be used transparently as a built-in Integer but with a different size

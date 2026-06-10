@@ -59,6 +59,9 @@ import Data.ByteString (ByteString)
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short qualified as SBS
+#if WORD_SIZE_IN_BITS != 64
+import Data.Int (Int64)
+#endif
 import Data.Ix (Ix)
 import Data.Text qualified as Text
 import Data.Text.Array (pattern ByteArray)
@@ -2318,9 +2321,18 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
           (runCostingFunTwoArguments . paramReplicateByte)
   toBuiltinMeaning semvar ShiftByteString
     | ensurable semvar =
+#if WORD_SIZE_IN_BITS == 64
         let shiftByteStringD :: BS.ByteString -> Int -> BS.ByteString
             shiftByteStringD s n = Bitwise.shiftByteString s (toInteger n)
             {-# INLINE shiftByteStringD #-}
+#else
+        -- 'Int64' so that the accepted argument range matches 64-bit
+        -- platforms; a platform 'Int' would reject in-range arguments on
+        -- 32-bit targets.
+        let shiftByteStringD :: BS.ByteString -> Int64 -> BS.ByteString
+            shiftByteStringD s n = Bitwise.shiftByteString s (toInteger n)
+            {-# INLINE shiftByteStringD #-}
+#endif
          in makeBuiltinMeaning
               shiftByteStringD
               (runCostingFunTwoArguments . paramShiftByteString)
@@ -2333,9 +2345,18 @@ instance uni ~ DefaultUni => ToBuiltinMeaning uni DefaultFun where
               (runCostingFunTwoArguments . paramShiftByteString)
   toBuiltinMeaning semvar RotateByteString
     | ensurable semvar =
+#if WORD_SIZE_IN_BITS == 64
         let rotateByteStringD :: BS.ByteString -> Int -> BS.ByteString
             rotateByteStringD s n = Bitwise.rotateByteString s (toInteger n)
             {-# INLINE rotateByteStringD #-}
+#else
+        -- 'Int64' so that the accepted argument range matches 64-bit
+        -- platforms; a platform 'Int' would reject in-range arguments on
+        -- 32-bit targets.
+        let rotateByteStringD :: BS.ByteString -> Int64 -> BS.ByteString
+            rotateByteStringD s n = Bitwise.rotateByteString s (toInteger n)
+            {-# INLINE rotateByteStringD #-}
+#endif
          in makeBuiltinMeaning
               rotateByteStringD
               (runCostingFunTwoArguments . paramRotateByteString)
