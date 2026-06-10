@@ -1,0 +1,71 @@
+# This workflow cross-compiles the plutus-core test suite to wasm32-wasi and
+# runs it under wasmtime, checking that evaluation on a 32-bit word size
+# (WORD_SIZE_IN_BITS == 32) agrees with the 64-bit behaviour covered by the
+# regular test suites.
+#
+# This workflow runs daily at 03:00, and it can also be triggered manually.
+
+name: "🕸️ Wasm32 Testsuite"
+
+on:
+  schedule:
+    - cron: 0 3 * * *
+  workflow_dispatch:
+    inputs:
+      hedgehog-tests:
+        description: Number of tests to run (--hedgehog-tests XXXXX)
+        required: false
+        default: "1000"
+
+env:
+  HEDGEHOG_TESTS: ${{ github.event.inputs.hedgehog-tests || 1000 }}
+  # Pin ghc-wasm-meta; bump deliberately. Provides wasm32-wasi-ghc 9.12,
+  # wasm32-wasi-cabal, wasmtime and the wasi-sdk.
+  GHC_WASM_META: gitlab:haskell-wasm/ghc-wasm-meta/60098a5076557e327b326a1a3ba3b5fb4fec1e49?host=gitlab.haskell.org
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  wasm32-testsuite:
+    runs-on: [self-hosted, plutus-runner]
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.1
+
+      - name: Build wasm32 C libraries
+        run: |
+          nix build --no-warn-dirty --accept-flake-config --impure --out-link c-libs --expr "
+            let
+              ghcWasmMeta = builtins.getFlake \"$GHC_WASM_META\";
+              pkgs = import ghcWasmMeta.inputs.nixpkgs { system = builtins.currentSystem; };
+              cLibs = import ./nix/wasm32-c-libs {
+                inherit pkgs;
+                wasi-sdk = ghcWasmMeta.packages.\${builtins.currentSystem}.wasi-sdk;
+              };
+            in pkgs.symlinkJoin {
+              name = \"wasm32-c-libs\";
+              paths = cLibs.all ++ [ cLibs.secp256k1.dev ];
+            }"
+
+      - name: Build test suite for wasm32-wasi
+        run: |
+          export PKG_CONFIG_PATH="$PWD/c-libs/lib/pkgconfig"
+          nix shell --no-warn-dirty --accept-flake-config \
+            "$GHC_WASM_META#all_9_12" nixpkgs#pkg-config \
+            --command bash -c '
+              wasm32-wasi-cabal --project-file=cabal-wasm.project update
+              wasm32-wasi-cabal --project-file=cabal-wasm.project build \
+                plutus-core:test:plutus-core-test
+            '
+
+      - name: Run Plutus Core Test (wasm32)
+        run: |
+          BINARY=$(find dist-newstyle -name plutus-core-test.wasm -type f | head -1)
+          pushd plutus-core
+          nix shell --no-warn-dirty --accept-flake-config "$GHC_WASM_META#all_9_12" \
+            --command wasmtime run --dir . --dir /tmp "../$BINARY" \
+              --hedgehog-tests "$HEDGEHOG_TESTS" --no-create --hide-successes
+          popd
