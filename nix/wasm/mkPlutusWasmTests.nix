@@ -248,9 +248,28 @@ let
     ''
   );
 
+  # Narrow the *final build* source so high-churn non-build files don't change
+  # its derivation hash and bust the wasm cache. We drop `.github/` (CI config)
+  # and repo-root `*.md`/`*.adoc` (docs) — none are inputs to any wasm build, so
+  # a docs/CI commit no longer forces a recompile-and-link of every suite.
+  # NOTE: the dependency FOD (`collectMetadataFiles "" src`, above) still reads
+  # the original `src`, so the cached dep closure / `dependenciesHash` are
+  # unchanged — only this final link step is affected.
+  buildSrc = lib.cleanSourceWith {
+    inherit src;
+    name = "${sandboxName}-build";
+    filter = path: type:
+      let rel = lib.removePrefix "${toString src}/" (toString path);
+      in
+      !(
+        rel == ".github" || lib.hasPrefix ".github/" rel
+        || (type == "regular" && builtins.match "[^/]+\\.(md|adoc)" rel != null)
+      );
+  };
+
   renamedSrc = pkgs.runCommand sandboxName { } ''
     mkdir -p $out
-    cp -rL ${src}/. $out/
+    cp -rL ${buildSrc}/. $out/
     chmod -R u+w $out
     ${sourcePatch}
   '';
