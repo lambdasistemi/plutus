@@ -9,9 +9,10 @@ budget/fee estimation (the use case in [IntersectMBO/plutus#6040](https://github
 Upstream assumes a 64-bit machine word and silently diverges on wasm32; this fork fixes that **without
 changing what the node compiles**.
 
-**▶ Try it live:** [lambdasistemi.github.io/plutus](https://lambdasistemi.github.io/plutus/) — paste a
-UPLC program and evaluate it in your browser (result + `ExBudget`), powered by `uplc.wasm`. Source in
-[`wasm32-spa/`](./wasm32-spa).
+**▶ Try it live:** [lambdasistemi.github.io/plutus-browser](https://lambdasistemi.github.io/plutus-browser/) —
+paste/edit UPLC and evaluate it in your browser (result + `ExBudget`), powered by this fork's `uplc.wasm`. The
+browser app is its own project: [lambdasistemi/plutus-browser](https://github.com/lambdasistemi/plutus-browser)
+(this fork is the evaluator library it depends on).
 
 ## Releases (we track upstream)
 
