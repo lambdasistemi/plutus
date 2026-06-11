@@ -573,6 +573,40 @@ readKnownAsInteger term =
             ]
 {-# INLINE readKnownAsInteger #-}
 
+{- Note [Platform Int on non-64-bit targets]
+The chain runs on 64-bit, where the platform 'Int'/'Word' are 'Int64'/'Word64'.
+On a 32-bit target (e.g. wasm32) they are 32-bit, so the 'Int'/'Word' instances
+cannot match the chain on *both* directions and must be split:
+
+  * makeKnown (lift Haskell -> UPLC) is a lossless upcast to 'Integer' on any
+    word size, so we keep it. It is genuinely exercised on 32-bit: the
+    denotations of 'lengthOfByteString', 'countSetBits' and 'findFirstSetBit'
+    return a bare 'Int' (a non-negative count that always fits a 32-bit 'Int'
+    inside a 4 GB address space), and 'toInteger' produces the identical
+    'Integer' result on 32- and 64-bit. Poisoning this direction (as upstream's
+    blanket #else did) would break those builtins on wasm32.
+
+  * readKnown (unlift UPLC -> Haskell) *cannot* be neutral: the chain accepts the
+    full 'Int64' range [-2^63, 2^63), which a 32-bit 'Int' cannot represent.
+    Unlifting through the platform 'Int' would silently accept a strictly
+    narrower range than the chain — exactly the divergence this fork exists to
+    prevent. No default builtin unlifts a platform 'Int'/'Word' (the affected
+    denotations take 'Integer' or 'Int64'), so rather than ship a non-neutral
+    instance we poison it: any user extension or future builtin that unlifts a
+    platform 'Int' on a 32-bit target fails loudly instead of diverging.
+-}
+
+#if WORD_SIZE_IN_BITS != 64
+-- See Note [Platform Int on non-64-bit targets].
+-- NB: a single-line string literal — this module is preprocessed by CPP
+-- (#include "MachDeps.h"), and CPP splices @\@-newline, which breaks Haskell
+-- string gaps (turning @\@<newline>@\s@ into the invalid escape @\s@).
+platformIntUnliftUnsupported :: a
+platformIntUnliftUnsupported =
+  error "PlutusCore.Default.Universe: unlifting a platform Int/Word is unsupported on non-64-bit targets (it would accept a narrower range than the 64-bit chain); see Note [Platform Int on non-64-bit targets]"
+{-# INLINE platformIntUnliftUnsupported #-}
+#endif
+
 #if WORD_SIZE_IN_BITS == 64
 -- See Note [Integral types as Integer].
 deriving via AsInteger Int instance
@@ -593,18 +627,16 @@ instance KnownBuiltinTypeIn DefaultUni term Integer => ReadKnownIn DefaultUni te
     readKnown term = fromIntegral @Word64 @Word <$> readKnown term
     {-# INLINE readKnown #-}
 #else
--- On non-64-bit platforms (e.g. wasm32) lifting an 'Int' is lossless as on
--- 64-bit ones, while unlifting bounds-checks against the platform 'Int'
--- range like every other 'Integral' instance here. No default builtin
--- unlifts a platform 'Int' (the denotations use fixed-width or 'Integer'
--- types), so these instances exist for completeness and user extensions.
+-- See Note [Platform Int on non-64-bit targets]: lift stays (lossless, and used
+-- by lengthOfByteString/countSetBits/findFirstSetBit); unlift is poisoned
+-- because a 32-bit platform 'Int' cannot represent the chain's full range.
 deriving via AsInteger Int instance
         KnownTypeAst tyname DefaultUni Int
 instance KnownBuiltinTypeIn DefaultUni term Integer => MakeKnownIn DefaultUni term Int where
     makeKnown = makeKnownAsInteger
     {-# INLINE makeKnown #-}
 instance KnownBuiltinTypeIn DefaultUni term Integer => ReadKnownIn DefaultUni term Int where
-    readKnown = readKnownAsInteger
+    readKnown = platformIntUnliftUnsupported
     {-# INLINE readKnown #-}
 
 deriving via AsInteger Word instance
@@ -613,7 +645,7 @@ instance KnownBuiltinTypeIn DefaultUni term Integer => MakeKnownIn DefaultUni te
     makeKnown = makeKnownAsInteger
     {-# INLINE makeKnown #-}
 instance KnownBuiltinTypeIn DefaultUni term Integer => ReadKnownIn DefaultUni term Word where
-    readKnown = readKnownAsInteger
+    readKnown = platformIntUnliftUnsupported
     {-# INLINE readKnown #-}
 #endif
 
