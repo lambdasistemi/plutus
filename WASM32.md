@@ -15,13 +15,21 @@ UPLC program and evaluate it in your browser (result + `ExBudget`), powered by `
 
 ## Releases (we track upstream)
 
-Each fork release is `<upstream-version>-wasm32` and tracks the matching upstream release tag. The GitHub
-Releases are the changelog of our divergence — each documents what changed vs that upstream version and
-ships the prebuilt `uplc.wasm`.
+Fork releases are tagged **`<upstream-version>-wasm32.<rev>`**:
+
+- `<upstream-version>` — the exact upstream Plutus release this is rebased onto.
+- `<rev>` — our revision/bugfix counter against that upstream base. It increments for each fork release on
+  the same base and **resets when the upstream version bumps** (e.g. `1.66.x.x-wasm32.1`). The first cut on a
+  base may omit the `.<rev>` suffix.
+
+Tags are **immutable**: a fix ships as the next `.<rev>`, never by moving a published tag. The GitHub Releases
+are the changelog of our divergence — each documents what changed and ships the prebuilt `uplc.wasm`. Pin the
+exact tag you want.
 
 | Fork tag | Tracks upstream | Status |
 |----------|-----------------|--------|
-| `1.65.0.0-wasm32` | `1.65.0.0` | full suite green on wasm32; 64-bit neutral |
+| `1.65.0.0-wasm32.1` | `1.65.0.0` | **recommended** — full suite green; 64-bit neutral (platform-`Int` unlift hardened) |
+| `1.65.0.0-wasm32` | `1.65.0.0` | superseded by `.1` (non-neutral platform-`Int` unlift) |
 
 ## What we changed vs upstream
 
@@ -36,7 +44,7 @@ fork's job is to *preserve* on-chain semantics on a platform the node never runs
 | tests | enable the suites on wasm32: lift `buildable: False`, gate `-threaded` off (no threaded wasm RTS), compare goldens in-process (WASI can't spawn `diff`), 32-bit signature golden set under `Signatures32/`, SatInt test derives width from its `Int64` payload, `flat-big-test` gated (multi-GB stress, incompatible with wasm32's 4 GB space) | run upstream's own suite as the proof |
 | CI | cachix-cached `runs-on: nixos` wasm32 testsuite — `nix/wasm/mkPlutusWasmTests.nix` (two-phase FOD) → `.#wasm-<suite>` → `wasmtime` | reproducible proof; the wasm dep closure compiles once and is cached |
 
-Verified on the `1.65.0.0-wasm32` release: `plutus-core-test` 2294, `untyped-plutus-core-test` 870,
+Verified on the `1.65.0.0-wasm32.1` release: `plutus-core-test` 2294, `untyped-plutus-core-test` 870,
 `plutus-ir-test` 332, `index-envs-test` 36, `satint-test` 17, `flat-test` 1491 — all green under wasmtime.
 
 ## How to use the wasm artifacts
@@ -49,7 +57,7 @@ Plutus is a *library* you link into your own wasm. Pin this fork and cross-compi
 source-repository-package
   type: git
   location: https://github.com/lambdasistemi/plutus.git
-  tag: d6b0a198884495d4d3f71d908273b9f06c98bd4d    -- 1.65.0.0-wasm32
+  tag: 1.65.0.0-wasm32.1
   subdir: plutus-core plutus-ledger-api plutus-tx
 ```
 
@@ -80,7 +88,7 @@ browser WASI shim — the "real CEK in the browser" use case.
 Needs a checkout — the goldens / `test/data` are in the source, not the `.wasm`:
 
 ```sh
-git clone -b 1.65.0.0-wasm32 https://github.com/lambdasistemi/plutus && cd plutus
+git clone -b 1.65.0.0-wasm32.1 https://github.com/lambdasistemi/plutus && cd plutus
 nix build .#wasm-plutus-core-test
 WASMTIME=$(nix build --no-link --print-out-paths .#wasm-toolchain)/bin/wasmtime
 ( cd plutus-core && "$WASMTIME" run --dir . --dir /tmp \
@@ -88,7 +96,7 @@ WASMTIME=$(nix build --no-link --print-out-paths .#wasm-toolchain)/bin/wasmtime
 # -> All 2294 tests passed
 ```
 
-To just *build* the artifact without cloning: `nix build github:lambdasistemi/plutus/1.65.0.0-wasm32#wasm-plutus-core-test`
+To just *build* the artifact without cloning: `nix build github:lambdasistemi/plutus/1.65.0.0-wasm32.1#wasm-plutus-core-test`
 — **the ref is required**; bare `github:lambdasistemi/plutus` is the default branch and has no wasm targets.
 
 The `🕸️ Wasm32 Testsuite` workflow (`.github/workflows/wasm32-testsuite.yml`, `runs-on: nixos`,
@@ -102,5 +110,17 @@ The fork is a thin stack of ~7 commits on the upstream release tag — a "rebase
 2. Resolve conflicts — they only occur where upstream edited the same gated denotation, which is exactly
    the signal to re-derive the 32-bit variant.
 3. Regenerate `Signatures32/` goldens if signatures changed (run the suite with `--accept`).
-4. Push; the wasm32 CI re-proves the matrix.
-5. Tag `<new-version>-wasm32`, write the release notes (what changed vs upstream), attach `uplc.wasm`.
+4. Push the branch and wait for `wasm32-testsuite.yml` to go green (it re-proves the full matrix).
+5. Cut the release **only after the branch is green**: pick the tag per the scheme above — `<new-upstream>-wasm32.1`
+   after a rebase, or the next `.<rev>` for a bugfix on the same base. Optionally hand-write
+   `wasm32-release-notes/<tag>.md` (otherwise notes are generated from the changelog). Then tag and push:
+
+   ```sh
+   git tag <tag>
+   git push git@github.com:lambdasistemi/plutus.git <tag>   # SSH: the OAuth token lacks `workflow` scope
+   ```
+
+   The `🕸️ Wasm32 Release` workflow (`.github/workflows/wasm32-release-assets.yml`) then builds `.#wasm-uplc`,
+   smoke-tests it under wasmtime, and publishes the GitHub Release with `uplc.wasm` + `SHA256SUMS` attached —
+   no manual upload. (A tag-push runs the workflow from the *tagged* commit's tree, so make sure the tagged
+   commit contains this workflow.)
