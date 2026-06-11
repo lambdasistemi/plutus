@@ -96,5 +96,19 @@ jobs:
           wasmtime run --dir . --dir /tmp \
             ../result-wasm-flat-test/flat-test.wasm
 
+      # Upstream's own conformance corpus (UPLC result + ExBudget goldens),
+      # run under wasmtime from plutus-conformance/ so test-cases/ is on CWD.
+      # The CEK evaluator + golden compare are in-process (no fork/diff), so
+      # this needs no special WASI handling beyond mounting the test tree.
+      - name: Build wasm haskell-conformance
+        run: nix build .#wasm-haskell-conformance -o result-wasm-haskell-conformance
+
+      - name: Run wasm haskell-conformance
+        working-directory: plutus-conformance
+        run: |
+          wasmtime run --dir . --dir /tmp \
+            ../result-wasm-haskell-conformance/haskell-conformance.wasm \
+            --no-create
+
       # Documented exclusion: flat-big-test is gated on wasm32 because the
       # stress executable traps in the GHC wasm RTS call_indirect table.
