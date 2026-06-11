@@ -9,6 +9,10 @@ budget/fee estimation (the use case in [IntersectMBO/plutus#6040](https://github
 Upstream assumes a 64-bit machine word and silently diverges on wasm32; this fork fixes that **without
 changing what the node compiles**.
 
+**▶ Try it live:** [lambdasistemi.github.io/plutus](https://lambdasistemi.github.io/plutus/) — paste a
+UPLC program and evaluate it in your browser (result + `ExBudget`), powered by `uplc.wasm`. Source in
+[`wasm32-spa/`](./wasm32-spa).
+
 ## Releases (we track upstream)
 
 Each fork release is `<upstream-version>-wasm32` and tracks the matching upstream release tag. The GitHub
