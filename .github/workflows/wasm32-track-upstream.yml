@@ -1,0 +1,176 @@
+name: "🕸️ Wasm32 — track upstream & auto-release"
+
+# Polls IntersectMBO/plutus for a new release and keeps the wasm32 fork in
+# lockstep. On a new upstream version it rebases the fork's ~7-commit wasm32
+# stack onto the new tag, runs the FULL wasm32 testsuite inline as the gate,
+# and — only if green — cuts `<upstream>-wasm32.0` and pushes the tag (which
+# fires `wasm32-release-assets.yml` to build + publish `uplc.wasm`).
+#
+# Versioning: `.0` is the standard automated cut on a fresh upstream base;
+# `.1`/`.2`/… are MANUAL bugfix republishes on the same base (humans cut those).
+#
+# Hands-off only on the happy path. A conflicting rebase, a Signatures32 change,
+# or a red suite opens an issue and stops — upstream touched a gated denotation
+# and the 32-bit variant must be re-derived by hand.
+#
+# Lives on `master` (the default branch) because `schedule:` only fires from the
+# default branch. It operates on the `wasm32-*` product branches via git.
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"        # every 6h
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Upstream tag to track (blank = latest release)"
+        required: false
+      hedgehog_tests:
+        description: "Property-test count for the gate"
+        required: false
+        default: "1000"
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: wasm32-track-upstream
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # PAT/deploy key with repo + workflow scope. REQUIRED: a tag pushed by the
+  # default GITHUB_TOKEN does NOT trigger the release-assets workflow (GitHub
+  # suppresses that to prevent loops), so the bot must push with its own token.
+  GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
+  HEDGEHOG_TESTS: ${{ github.event.inputs.hedgehog_tests || '1000' }}
+
+jobs:
+  track:
+    runs-on: nixos
+    timeout-minutes: 300
+    steps:
+      - name: Checkout fork (full history + tags)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_BOT_TOKEN }}
+
+      - name: Identify base (latest fork release) and upstream target
+        id: ver
+        run: |
+          set -euo pipefail
+          git config user.name  "wasm32-release-bot"
+          git config user.email "wasm32-release-bot@users.noreply.github.com"
+          git remote add upstream https://github.com/IntersectMBO/plutus.git 2>/dev/null || true
+
+          # current base = highest upstream version we've already released a -wasm32 for
+          base=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+                   --json tagName --jq '.[].tagName' \
+                 | sed -n 's/-wasm32.*$//p' | sort -V | tail -1)
+          [ -n "$base" ] || { echo "::error::could not determine current fork base"; exit 1; }
+
+          if [ -n "${{ github.event.inputs.upstream_tag }}" ]; then
+            target="${{ github.event.inputs.upstream_tag }}"
+          else
+            target=$(gh release view --repo IntersectMBO/plutus --json tagName --jq .tagName)
+          fi
+
+          echo "base=$base"     | tee -a "$GITHUB_OUTPUT"
+          echo "target=$target" | tee -a "$GITHUB_OUTPUT"
+          newest=$(printf '%s\n%s\n' "$base" "$target" | sort -V | tail -1)
+          if [ "$base" = "$target" ] || [ "$newest" = "$base" ]; then
+            echo "proceed=false" | tee -a "$GITHUB_OUTPUT"
+            echo "Up to date (base=$base, upstream=$target) — nothing to do."
+          else
+            echo "proceed=true" | tee -a "$GITHUB_OUTPUT"
+            echo "New upstream $target (base was $base) — will rebase + gate."
+          fi
+
+      - name: Rebase the wasm32 stack onto the new upstream
+        id: rebase
+        if: steps.ver.outputs.proceed == 'true'
+        run: |
+          set -euo pipefail
+          base="${{ steps.ver.outputs.base }}"; target="${{ steps.ver.outputs.target }}"
+          git fetch --no-tags origin "wasm32-${base}:wasm32-${base}"
+          git fetch --no-tags upstream "refs/tags/${target}:refs/tags/${target}"
+          git checkout -B "wasm32-${target}" "wasm32-${base}"
+          if git rebase --onto "${target}" "${base}" "wasm32-${target}"; then
+            echo "conflict=false" | tee -a "$GITHUB_OUTPUT"
+          else
+            git rebase --abort || true
+            echo "conflict=true" | tee -a "$GITHUB_OUTPUT"
+          fi
+
+      - name: Escalate — rebase conflict needs a human
+        if: steps.ver.outputs.proceed == 'true' && steps.rebase.outputs.conflict == 'true'
+        run: |
+          set -euo pipefail
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "wasm32: rebase onto upstream ${{ steps.ver.outputs.target }} hit conflicts" \
+            --body $'The automated rebase of `wasm32-${{ steps.ver.outputs.base }}` onto upstream `${{ steps.ver.outputs.target }}` conflicted — upstream edited a gated denotation, so the 32-bit variant needs re-deriving by hand.\n\n```\ngit rebase --onto ${{ steps.ver.outputs.target }} ${{ steps.ver.outputs.base }} wasm32-${{ steps.ver.outputs.target }}\n```\n\nResolve, regenerate `Signatures32/` if needed, push the branch, and let the suite go green. Then cut `${{ steps.ver.outputs.target }}-wasm32.0`.'
+          echo "::error::rebase conflict — escalated to an issue"
+          exit 1
+
+      - name: Add wasm runtime to PATH
+        if: steps.ver.outputs.proceed == 'true' && steps.rebase.outputs.conflict == 'false'
+        run: echo "$(nix build .#wasm-toolchain --no-link --print-out-paths)/bin" >> "$GITHUB_PATH"
+
+      - uses: cachix/cachix-action@v17
+        if: steps.ver.outputs.proceed == 'true' && steps.rebase.outputs.conflict == 'false'
+        with:
+          name: paolino
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Gate — full wasm32 suite must be green (incl. conformance)
+        id: gate
+        if: steps.ver.outputs.proceed == 'true' && steps.rebase.outputs.conflict == 'false'
+        run: |
+          set -euo pipefail
+          for s in plutus-core-test untyped-plutus-core-test plutus-ir-test index-envs-test satint-test flat-test; do
+            nix build ".#wasm-$s" -o "result-wasm-$s"
+          done
+          nix build .#wasm-haskell-conformance -o result-wasm-haskell-conformance
+          ( cd plutus-core
+            for s in plutus-core-test untyped-plutus-core-test plutus-ir-test; do
+              wasmtime run --dir . --dir /tmp "../result-wasm-$s/$s.wasm" --hedgehog-tests "$HEDGEHOG_TESTS" --no-create
+            done
+            for s in index-envs-test satint-test flat-test; do
+              wasmtime run --dir . --dir /tmp "../result-wasm-$s/$s.wasm"
+            done )
+          ( cd plutus-conformance
+            wasmtime run --dir . --dir /tmp ../result-wasm-haskell-conformance/haskell-conformance.wasm --no-create )
+
+      - name: Publish — push branch + cut <upstream>-wasm32.0
+        if: steps.ver.outputs.proceed == 'true' && steps.rebase.outputs.conflict == 'false'
+        run: |
+          set -euo pipefail
+          target="${{ steps.ver.outputs.target }}"; tag="${target}-wasm32.0"
+          git push origin "wasm32-${target}"
+
+          # Roll the required-check gate forward onto the new line, matching the
+          # protection on the previous line (required wasm32-testsuite; admins —
+          # i.e. this bot — bypass so its own pushes aren't blocked).
+          cat > /tmp/protect.json <<'JSON'
+          { "required_status_checks": { "strict": false, "checks": [ { "context": "wasm32-testsuite" } ] },
+            "enforce_admins": false, "required_pull_request_reviews": null, "restrictions": null,
+            "allow_force_pushes": false, "allow_deletions": false }
+          JSON
+          gh api --method PUT "repos/$GITHUB_REPOSITORY/branches/wasm32-${target}/protection" \
+            --input /tmp/protect.json >/dev/null && echo "Protected wasm32-${target} (required: wasm32-testsuite)."
+
+          git tag -a "$tag" -m "wasm32 fork of Plutus ${target} (automated baseline cut)"
+          git push origin "$tag"          # token-authed → fires wasm32-release-assets.yml
+          echo "Cut $tag and pushed — release-assets will build + publish uplc.wasm."
+
+      - name: Escalate — suite red after a clean rebase
+        if: failure() && steps.gate.conclusion == 'failure'
+        run: |
+          set -euo pipefail
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "wasm32: suite RED after rebasing onto ${{ steps.ver.outputs.target }}" \
+            --body $'The rebase onto upstream `${{ steps.ver.outputs.target }}` applied cleanly but the wasm32 suite failed. Likely a `Signatures32/` change or a behavioural shift in a gated builtin. Investigate `wasm32-${{ steps.ver.outputs.target }}`, fix/regenerate goldens, then cut `${{ steps.ver.outputs.target }}-wasm32.0` manually.'
