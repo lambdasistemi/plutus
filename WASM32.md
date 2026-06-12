@@ -48,6 +48,27 @@ fork's job is to *preserve* on-chain semantics on a platform the node never runs
 Verified on the `1.65.0.0-wasm32.1` release: `plutus-core-test` 2294, `untyped-plutus-core-test` 870,
 `plutus-ir-test` 332, `index-envs-test` 36, `satint-test` 17, `flat-test` 1491 — all green under wasmtime.
 
+### Conformance — upstream's own corpus, byte-identical on wasm32
+
+The strongest proof is upstream's language-agnostic [`plutus-conformance`](https://github.com/IntersectMBO/plutus/tree/master/plutus-conformance)
+suite: a fixed corpus of UPLC programs each paired with its expected *result* **and** exact
+`ExBudget`. An evaluator is "conformant" iff it reproduces every golden byte-for-byte — the same
+bar upstream holds the 64-bit CEK to. We cross-compile the CEK conformance runner to wasm32 and run
+it under `wasmtime`: **`haskell-conformance` — all 1998 tests pass** (every `evaluation` and `budget`
+golden, zero expected-failure skips). This is the cleanest evidence the fork is conformant: it exercises
+exactly the narrow-then-check builtins the fork corrects (`shiftByteString`, `integerToByteString`,
+`indexByteString`, …) and would surface any 32-bit wrap as a result *or* budget diff. The conformance
+runner evaluates and compares goldens in-process (no `fork`/`diff`), so it needs no WASI special-casing
+beyond mounting `test-cases/` — run it from `plutus-conformance/`:
+
+```sh
+nix build github:lambdasistemi/plutus/<tag>#wasm-haskell-conformance -o result-wasm-haskell-conformance
+WASMTIME=$(nix build --no-link --print-out-paths github:lambdasistemi/plutus/<tag>#wasm-toolchain)/bin/wasmtime
+( cd plutus-conformance && "$WASMTIME" run --dir . --dir /tmp \
+    ../result-wasm-haskell-conformance/haskell-conformance.wasm --no-create )
+# -> All 1998 tests passed
+```
+
 ## How to use the wasm artifacts
 
 ### 1. Embed in your own wasm (wallets, verifiers) — source dependency

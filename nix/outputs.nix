@@ -79,6 +79,17 @@ let
     };
   };
 
+  wasm-conformance-package = lib.optionalAttrs pkgs.stdenv.isLinux {
+    wasm-haskell-conformance = import ./wasm-conformance.nix {
+      inherit pkgs lib;
+      ghcWasmMeta = inputs.ghc-wasm-meta.packages.${system}.all_9_12;
+      wasiSdk = inputs.ghc-wasm-meta.packages.${system}.wasi-sdk;
+      chap = inputs.CHaP;
+      src = ../.;
+      satintSrc = ../plutus-core/satint/src;
+    };
+  };
+
   wasm-toolchain-packages = lib.optionalAttrs pkgs.stdenv.isLinux {
     wasm-toolchain = inputs.ghc-wasm-meta.packages.${system}.all_9_12;
   };
@@ -123,6 +134,7 @@ let
     wasm-toolchain-packages //
     wasm-test-packages //
     wasm-uplc-package //
+    wasm-conformance-package //
     exposed-haskell-packages //
     extra-artifacts;
 
