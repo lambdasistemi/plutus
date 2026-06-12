@@ -1,0 +1,79 @@
+name: "🕸️ Wasm32 — nightly testsuite"
+
+# Self-contained nightly that lives on `master` (the default branch) because
+# `schedule:` only fires from the default branch — the testsuite's own nightly
+# cron is dead since `wasm32-testsuite.yml` lives on the non-default wasm32-*
+# branch, and that branch's workflow can't be reached by `workflow_dispatch`
+# from here either (workflow_dispatch also requires the default branch).
+#
+# So this job checks out the latest wasm32 product branch and runs the full
+# matrix itself. The push-triggered `wasm32-testsuite.yml` still covers every
+# push to a wasm32-* branch; this revives the time-based regression sweep
+# (catches cache rot / runner drift even with no upstream release).
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      hedgehog_tests:
+        description: "Property-test count (--hedgehog-tests)"
+        required: false
+        default: "1000"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  HEDGEHOG_TESTS: ${{ github.event.inputs.hedgehog_tests || '1000' }}
+
+jobs:
+  nightly:
+    runs-on: nixos
+    timeout-minutes: 240
+    steps:
+      - name: Checkout (for git + the latest wasm32 branch)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check out the latest wasm32 line
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          base=$(nix shell nixpkgs#gh -c gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+                   --json tagName --jq '.[].tagName' | sed -n 's/-wasm32.*$//p' | sort -V | tail -1)
+          [ -n "$base" ] || { echo "::error::no -wasm32 release found"; exit 1; }
+          echo "Latest wasm32 line: wasm32-$base"
+          git fetch --no-tags origin "wasm32-$base:wasm32-$base"
+          git checkout "wasm32-$base"
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: paolino
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Add wasm runtime to PATH
+        run: echo "$(nix build .#wasm-toolchain --no-link --print-out-paths)/bin" >> "$GITHUB_PATH"
+
+      - name: Run the full wasm32 matrix (incl. conformance)
+        run: |
+          set -euo pipefail
+          for s in plutus-core-test untyped-plutus-core-test plutus-ir-test index-envs-test satint-test flat-test; do
+            nix build ".#wasm-$s" -o "result-wasm-$s"
+          done
+          nix build .#wasm-haskell-conformance -o result-wasm-haskell-conformance
+          ( cd plutus-core
+            for s in plutus-core-test untyped-plutus-core-test plutus-ir-test; do
+              wasmtime run --dir . --dir /tmp "../result-wasm-$s/$s.wasm" --hedgehog-tests "$HEDGEHOG_TESTS" --no-create
+            done
+            for s in index-envs-test satint-test flat-test; do
+              wasmtime run --dir . --dir /tmp "../result-wasm-$s/$s.wasm"
+            done )
+          ( cd plutus-conformance
+            wasmtime run --dir . --dir /tmp ../result-wasm-haskell-conformance/haskell-conformance.wasm --no-create )
