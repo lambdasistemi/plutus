@@ -42,10 +42,6 @@ defaults:
     shell: bash
 
 env:
-  # PAT/deploy key with repo + workflow scope. REQUIRED: a tag pushed by the
-  # default GITHUB_TOKEN does NOT trigger the release-assets workflow (GitHub
-  # suppresses that to prevent loops), so the bot must push with its own token.
-  GH_TOKEN: ${{ secrets.RELEASE_BOT_TOKEN }}
   HEDGEHOG_TESTS: ${{ github.event.inputs.hedgehog_tests || '1000' }}
 
 jobs:
@@ -53,11 +49,30 @@ jobs:
     runs-on: nixos
     timeout-minutes: 300
     steps:
+      # Short-lived token from the lambdasistemi-ci App, scoped to this repo.
+      # REQUIRED: a tag pushed by the default GITHUB_TOKEN does NOT trigger the
+      # release-assets workflow (GitHub suppresses that to prevent loops); an
+      # App-minted token DOES emit workflow events, so the tag push fires
+      # wasm32-release-assets.yml. The branch-protection PUT below additionally
+      # needs the App to hold `administration: write` on this repo (besides
+      # contents + issues); without it that step 403s.
+      - name: Mint a scoped release token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: lambdasistemi
+          repositories: plutus
+
+      - name: Export token for gh + git
+        run: echo "GH_TOKEN=${{ steps.app-token.outputs.token }}" >> "$GITHUB_ENV"
+
       - name: Checkout fork (full history + tags)
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_BOT_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Identify base (latest fork release) and upstream target
         id: ver
