@@ -105,15 +105,17 @@ jobs:
       - name: Publish the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           export TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          test "$GH_REPO" = "$GITHUB_REPOSITORY"
           # gh is not on the self-hosted nixos runner PATH; provide it via nix.
           nix shell --accept-flake-config nixpkgs#gh --command bash -euo pipefail -c '
-            if gh release view "$TAG" >/dev/null 2>&1; then
-              gh release edit "$TAG" --title "$TAG" --notes-file artifacts/NOTES.md --latest
+            if gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+              gh release edit "$TAG" --repo "$GH_REPO" --title "$TAG" --notes-file artifacts/NOTES.md --latest
             else
-              gh release create "$TAG" --title "$TAG" --notes-file artifacts/NOTES.md --latest
+              gh release create "$TAG" --repo "$GH_REPO" --title "$TAG" --notes-file artifacts/NOTES.md --latest
             fi
-            gh release upload "$TAG" artifacts/uplc.wasm artifacts/SHA256SUMS --clobber
+            gh release upload "$TAG" --repo "$GH_REPO" artifacts/uplc.wasm artifacts/SHA256SUMS --clobber
           '
