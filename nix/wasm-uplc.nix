@@ -18,7 +18,7 @@ mkPlutusWasmTests {
   pname = "plutus-wasm-uplc";
   depsPname = "plutus-wasm-uplc-deps";
   prebuiltDepsPname = "plutus-wasm-uplc-prebuilt-deps";
-  dependenciesHash = "sha256-+sp89szv8Nia3ZBYTu8gL5jQERUEZdK2TUfGE1oMwE0=";
+  dependenciesHash = "sha256-JwUB0GLMmc7+YNaJ2q7KHmQF/6h7hLNcI/KTS8PKkX0=";
   sourcePatch = ''
     sed -i 's/if (impl(ghc <9.6) || impl(ghc >=9.7))/if !((impl(ghc >=9.6) \&\& impl(ghc <9.7)) || (impl(ghc >=9.12) \&\& impl(ghc <9.13)))/' \
       "$out/plutus-executables/plutus-executables.cabal"

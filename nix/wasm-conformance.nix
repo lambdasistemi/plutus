@@ -18,7 +18,7 @@ mkPlutusWasmTests {
   pname = "plutus-wasm-conformance";
   depsPname = "plutus-wasm-conformance-deps";
   prebuiltDepsPname = "plutus-wasm-conformance-prebuilt-deps";
-  dependenciesHash = "sha256-gnxxQ3cYQC//T9VXc77y0Vf6Q9cxEZ5xQlFygxc8yW4=";
+  dependenciesHash = "sha256-JgeTyKhRIeibUeqEpOkImIDO25PVLccDcLiW0AbOBVQ=";
   cleanupPackageNames = [ "plutus-core" "plutus-conformance" ];
   components = [
     {

@@ -23,7 +23,8 @@ let
 
   allTests = mkPlutusWasmTests {
     inherit src satintSrc suites;
-    dependenciesHash = "sha256-K11poN6mD2nnOzkdEr55JJ8y2tvOh0TQQiluM3kH64M=";
+    patchAesonDiff = true;
+    dependenciesHash = "sha256-Tp5OidSRwa6UEh+zntoHRDPzZD1qxr/0JmqRS9JgH4I=";
   };
 
   mkSuitePackage = suite:

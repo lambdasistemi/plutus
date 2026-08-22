@@ -480,6 +480,8 @@ test_BuiltinArray =
         let indices = mkConstant @[Integer] @DefaultUni () [2 ^ (64 :: Integer)]
             arrayOfInts = mkConstant @(Vector Integer) @DefaultUni () (Vector.fromList [10, 20, 30])
             term = mkIterAppNoAnn (tyInst () (builtin () MultiIndexArray) integer) [arrayOfInts, indices]
+        typecheckEvaluateCekNoEmit def defaultBuiltinCostModelForTesting term
+          @?= Right EvaluationFailure
     , testCase "indexArray-large-word32-index" do
         let arrayOfInts = mkConstant @(Vector Integer) @DefaultUni () (Vector.fromList [1 .. 10])
         let index = mkConstant @Integer @DefaultUni () (2 ^ (32 :: Integer) + 1)

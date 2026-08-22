@@ -26,6 +26,7 @@
 , depsPname ? "${pname}-deps"
 , prebuiltDepsPname ? "${pname}-prebuilt-deps"
 , cleanupPackageNames ? [ "plutus-core" ]
+, patchAesonDiff ? false
 , sourcePatch ? ""
 , projectFile ? "cabal-wasm.project"
 }:
@@ -285,16 +286,41 @@ let
 
   prefetchedForks = lib.genAttrs (builtins.attrNames fragment.pins) fetchFork;
 
-  forkPackageLines = lib.concatLists (
-    map
-      (name:
-        let pin = fragment.pins.${name};
-        in
-        if pin.subdirs == [ ]
-        then [ "  ${prefetchedForks.${name}}" ]
-        else map (sub: "  ${prefetchedForks.${name}}/${sub}") pin.subdirs)
-      (builtins.attrNames fragment.pins)
-  );
+  # aeson-diff's custom Setup.hs only generates metadata for its disabled
+  # doctest suite. Cabal compiles custom setup runners with the target compiler
+  # and then tries to execute them on the build host, which cannot work for
+  # wasm32-wasi. Use the package's ordinary Simple build for this cross build.
+  aesonDiffVersion = "1.1.0.15";
+  wasmAesonDiff = pkgs.runCommand "aeson-diff-${aesonDiffVersion}-wasm" { } ''
+    mkdir -p $out
+    tar -xzf \
+      ${deps}/packages/hackage.haskell.org/aeson-diff/${aesonDiffVersion}/aeson-diff-${aesonDiffVersion}.tar.gz \
+      --strip-components=1 -C $out
+    chmod -R u+w $out
+
+    substituteInPlace $out/aeson-diff.cabal \
+      --replace-fail 'build-type:          Custom' 'build-type:          Simple'
+    sed -i '/^custom-setup$/,$d' $out/aeson-diff.cabal
+
+    grep -Eq '^build-type:[[:space:]]+Simple$' $out/aeson-diff.cabal
+    if grep -q '^custom-setup$' $out/aeson-diff.cabal; then
+      echo 'aeson-diff custom setup survived the wasm patch' >&2
+      exit 1
+    fi
+  '';
+
+  forkPackageLines =
+    lib.optional patchAesonDiff "  ${wasmAesonDiff}"
+    ++ lib.concatLists (
+      map
+        (name:
+          let pin = fragment.pins.${name};
+          in
+          if pin.subdirs == [ ]
+          then [ "  ${prefetchedForks.${name}}" ]
+          else map (sub: "  ${prefetchedForks.${name}}/${sub}") pin.subdirs)
+        (builtins.attrNames fragment.pins)
+    );
 
   forkPackagesBlock =
     if forkPackageLines == [ ]
@@ -335,7 +361,7 @@ let
 
   deps = pkgs.stdenv.mkDerivation {
     pname = depsPname;
-    version = "1.65.0.0";
+    version = "1.67.0.0";
     src = srcMetadata;
 
     nativeBuildInputs = [
@@ -378,7 +404,7 @@ let
 
   prebuiltDeps = pkgs.stdenv.mkDerivation {
     pname = prebuiltDepsPname;
-    version = "1.65.0.0";
+    version = "1.67.0.0";
     src = srcMetadata;
 
     nativeBuildInputs = nativeWasmBuildInputs;
@@ -420,7 +446,7 @@ let
 
   wasm = pkgs.stdenv.mkDerivation {
     pname = pname;
-    version = "1.65.0.0";
+    version = "1.67.0.0";
     src = renamedSrc;
 
     nativeBuildInputs = nativeWasmBuildInputs;
