@@ -9,6 +9,8 @@
 -- Sure GHC, I'm enabling the extension just so that you can warn me about its usages.
 {-# OPTIONS_GHC -fno-warn-partial-type-signatures #-}
 
+#include "MachDeps.h"
+
 -- | Tests for all kinds of built-in functions.
 module Evaluation.Builtins.Definition
   ( test_definition
@@ -480,6 +482,12 @@ test_BuiltinArray =
             term = mkIterAppNoAnn (tyInst () (builtin () MultiIndexArray) integer) [arrayOfInts, indices]
         typecheckEvaluateCekNoEmit def defaultBuiltinCostModelForTesting term
           @?= Right EvaluationFailure
+    , testCase "indexArray-large-word32-index" do
+        let arrayOfInts = mkConstant @(Vector Integer) @DefaultUni () (Vector.fromList [1 .. 10])
+        let index = mkConstant @Integer @DefaultUni () (2 ^ (32 :: Integer) + 1)
+            term = mkIterAppNoAnn (tyInst () (builtin () IndexArray) integer) [arrayOfInts, index]
+        typecheckEvaluateCekNoEmit def defaultBuiltinCostModelForTesting term
+          @?= Right EvaluationFailure
     ]
 
 test_BuiltinPair :: TestTree
@@ -578,6 +586,7 @@ test_TrackCostsWith cat len checkTerm =
     checkTerm term
 
 -- | Test that individual budgets are picked up by GC while spending is still ongoing.
+#if WORD_SIZE_IN_BITS == 64
 test_TrackCostsRestricting :: TestTree
 test_TrackCostsRestricting =
   let n = 10000
@@ -595,6 +604,7 @@ test_TrackCostsRestricting =
                     , "But got: " ++ show actual
                     ]
             assertBool err $ expected < actual
+#endif
 
 test_TrackCostsRetaining :: TestTree
 test_TrackCostsRetaining =
@@ -725,6 +735,20 @@ fails fileName fun typeArgs termArgs = do
                     , map pretty logs
                     ]
 
+evaluatesToFailure
+  :: String
+  -> DefaultFun
+  -> [Type TyName DefaultUni ()]
+  -> [Term TyName Name DefaultUni DefaultFun ()]
+  -> TestNested
+evaluatesToFailure testName fun typeArgs termArgs =
+  embed . testCase testName $
+    Right EvaluationFailure
+      @=? typecheckEvaluateCekNoEmit
+        def
+        defaultBuiltinCostModelForTesting
+        (mkIterAppNoAnn (mkIterInstNoAnn (builtin () fun) typeArgs) termArgs)
+
 -- | Test all integer related builtins
 test_Integer :: TestNested
 test_Integer = testNestedM "Integer" $ do
@@ -847,6 +871,24 @@ test_String = testNestedM "String" $ do
     SliceByteString
     []
     [cons @Integer 6, cons @Integer 5, cons @ByteString "hello world"]
+  let aboveInt32 = 2 ^ (31 :: Integer) + 1
+      aboveWord32 = 2 ^ (32 :: Integer) + 1
+      sampleBytes = pack [0x42, 0x99]
+  evals @ByteString
+    sampleBytes
+    SliceByteString
+    []
+    [cons @Integer 0, cons @Integer aboveWord32, cons @ByteString sampleBytes]
+  evals @ByteString
+    mempty
+    SliceByteString
+    []
+    [cons @Integer aboveInt32, cons @Integer 1, cons @ByteString sampleBytes]
+  evals @ByteString
+    mempty
+    SliceByteString
+    []
+    [cons @Integer aboveWord32, cons @Integer 1, cons @ByteString sampleBytes]
 
   evals @Integer 11 LengthOfByteString [] [cons @ByteString "hello world"]
   evals @Integer 0 LengthOfByteString [] [cons @ByteString ""]
@@ -859,11 +901,21 @@ test_String = testNestedM "String" $ do
     IndexByteString
     []
     [cons @ByteString "hello world", cons @Integer 12]
+  evaluatesToFailure
+    "indexByteString-large-word32-index"
+    IndexByteString
+    []
+    [cons @ByteString sampleBytes, cons @Integer aboveWord32]
   fails
     "indexByteString-out-of-bounds-empty"
     IndexByteString
     []
     [cons @ByteString "", cons @Integer 0]
+  evaluatesToFailure
+    "readBit-large-word32-index"
+    ReadBit
+    []
+    [cons @ByteString (pack [0x02]), cons @Integer aboveWord32]
 
 test_MatchList :: MatchOption -> TestNested
 test_MatchList optMatch = testNestedM "MatchList" $ do
@@ -1921,6 +1973,16 @@ test_Conversion =
             . mapTestLimitAtLeast 50 (`div` 20)
             $ property Conversion.i2bProperty7
         , testGroup "CIP-121 examples" Conversion.i2bCipExamples
+        , testCase "small positive integer minimal bytes" do
+            let expected = cons @ByteString (pack [0x01])
+                mkTerm endianness =
+                  mkIterAppNoAnn
+                    (builtin () IntegerToByteString)
+                    [cons @Bool endianness, cons @Integer 0, cons @Integer 1]
+            typecheckEvaluateCekNoEmit def defaultBuiltinCostModelForTesting (mkTerm True)
+              @?= Right (EvaluationSuccess expected)
+            typecheckEvaluateCekNoEmit def defaultBuiltinCostModelForTesting (mkTerm False)
+              @?= Right (EvaluationSuccess expected)
         , testGroup "Tests for integerToByteString size limit" Conversion.i2bLimitTests
         ]
     , testGroup
@@ -2252,7 +2314,12 @@ test_definition =
     , test_BuiltinPair
     , test_SwapEls
     , test_IdBuiltinData
+#if WORD_SIZE_IN_BITS == 64
     , test_TrackCostsRestricting
+#else
+    -- WASI: single-threaded 32-bit RTS does not create enough GC
+    -- pressure for this collection-observation assertion.
+#endif
     , ignoreTestWhenHpcEnabled test_TrackCostsRetaining
     , test_SerialiseDataImpossible
     , test_fixId

@@ -1,0 +1,1 @@
+CByteString -> Integer -> BuiltinResult Bool

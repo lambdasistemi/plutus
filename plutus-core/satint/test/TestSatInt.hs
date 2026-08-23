@@ -9,8 +9,7 @@
 module Main where
 
 import Control.Exception as E
-import Data.List
-import Data.Maybe
+import Data.Bits
 import Data.SatInt
 import qualified Test.Cardano.Base.QuickCheck as BaseQC
 import Test.Framework as TF
@@ -61,7 +60,7 @@ unitTest :: Assertable t => TestName -> t -> TF.Test
 unitTest msg p = testCase msg (T.assert p)
 
 wordSize :: Int
-wordSize = fromJust (find (\n -> 2 ^ n == (0 :: Word)) [8, 16, 32, 64, 128])
+wordSize = finiteBitSize (unSatInt (0 :: SatInt))
 
 tests :: [TF.Test]
 tests =

@@ -1,11 +1,16 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE TypeApplications #-}
 
 {-| Check compatibility of Flat Natural to Flat Word64
 needed for Index (de)serialization see Note [DeBruijn Index serialization] -}
 module DeBruijn.FlatNatWord (test_flatNatWord) where
 
+#include "MachDeps.h"
+
+#if WORD_SIZE_IN_BITS == 64
 import PlutusCore.DeBruijn
+#endif
 import PlutusCore.FlatInstances ()
 
 import Data.Either (isLeft)
@@ -61,6 +66,7 @@ test_MaxBound = testCase "compatible maxbound" $ do
   -- Tripping from encoded as word to decoded as natural
   Right n == (unflat $ flat w) @? "tripping1 maxbound failed"
 
+#if WORD_SIZE_IN_BITS == 64
 prop_OldVsNewIndex :: TestTree
 prop_OldVsNewIndex = testProperty "oldVsNew Index" $ property $ do
   n <- forAll $ Gen.integral $ Range.linear minWord64AsNat (maxWord64AsNat * 10)
@@ -71,6 +77,7 @@ prop_OldVsNewIndex = testProperty "oldVsNew Index" $ property $ do
         _ -> False
 
   Hedgehog.assert $ unflat @Index encoded `isCompatible` unflat @OldIndex encoded
+#endif
 
 test_flatNatWord :: TestNested
 test_flatNatWord =
@@ -81,7 +88,13 @@ test_flatNatWord =
       , test_MaxBound
       , prop_CompatInBounds
       , prop_DecLarger
+#if WORD_SIZE_IN_BITS == 64
       , prop_OldVsNewIndex
+#else
+      -- The copied old decoder uses platform 'Word' via
+      -- 'naturalToWordMaybe', so this compatibility check is only valid
+      -- on 64-bit hosts.
+#endif
       ]
 
 -- * Old implementation of Flat Index copy-pasted and renamed to OldIndex
@@ -116,8 +129,10 @@ instance Flat OldIndex where
 
 -- * helpers
 
+#if WORD_SIZE_IN_BITS == 64
 minWord64AsNat :: Natural
 minWord64AsNat = fromIntegral @Word64 @Natural minBound
+#endif
 
 maxWord64AsNat :: Natural
 maxWord64AsNat = fromIntegral @Word64 @Natural maxBound

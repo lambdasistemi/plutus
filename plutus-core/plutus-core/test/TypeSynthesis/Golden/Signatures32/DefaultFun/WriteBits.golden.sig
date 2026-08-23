@@ -1,0 +1,1 @@
+ByteString -> [Integer] -> Bool -> BuiltinResult ByteString
