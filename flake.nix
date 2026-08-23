@@ -29,6 +29,10 @@
     flake-utils.url = "github:numtide/flake-utils";
 
     pre-commit-hooks.url = "github:cachix/git-hooks.nix";
+
+    ghc-wasm-meta = {
+      url = "gitlab:haskell-wasm/ghc-wasm-meta/60098a5076557e327b326a1a3ba3b5fb4fec1e49?host=gitlab.haskell.org";
+    };
   };
 
   outputs = inputs: inputs.flake-utils.lib.eachDefaultSystem (system:
