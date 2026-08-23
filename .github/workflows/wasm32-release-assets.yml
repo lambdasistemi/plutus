@@ -1,0 +1,121 @@
+name: "🕸️ Wasm32 Release"
+
+# On each wasm32 release tag — `<upstream>-wasm32` or `<upstream>-wasm32.<rev>`
+# (e.g. 1.65.0.0-wasm32.1) — build the uplc evaluator, smoke-test it under
+# wasmtime, assemble release notes (curated file if present, else generated
+# from the changelog), and publish the GitHub Release with uplc.wasm attached.
+#
+# NB: a tag-push runs the workflow file FROM THE PUSHED TAG's tree, so the
+# tagged commit must contain this workflow. The full wasm32 test matrix runs on
+# the branch (wasm32-testsuite.yml) — tag only after it is green; this job
+# smoke-tests the artifact, it does not re-run the suites.
+
+on:
+  push:
+    tags:
+      - '*-wasm32'      # first release on an upstream base (no subversion)
+      - '*-wasm32.*'    # subversioned releases, e.g. 1.65.0.0-wasm32.1
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing wasm32 tag to (re)build and publish assets for
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, smoke-test & publish uplc.wasm
+    runs-on: nixos
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0      # full history for changelog generation
+          fetch-tags: true    # need prior *-wasm32 tags to diff against
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: paolino
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build the uplc evaluator (wasm32-wasi)
+        run: nix build --quiet --accept-flake-config .#wasm-uplc -o result-wasm-uplc
+
+      - name: Smoke-test the artifact under wasmtime
+        run: |
+          set -euo pipefail
+          WASMTIME="$(nix build --no-link --print-out-paths --accept-flake-config .#wasm-toolchain)/bin/wasmtime"
+          printf '(program 1.0.0 [ [ (builtin addInteger) (con integer 40) ] (con integer 2) ])' > add.uplc
+          out="$("$WASMTIME" run --dir . --dir /tmp result-wasm-uplc/uplc.wasm -- evaluate -i add.uplc)"
+          echo "uplc evaluate -> $out"
+          echo "$out" | grep -qF '(con integer 42)'
+          # exercise the cost model path too (don't pin exact budget — it tracks upstream)
+          "$WASMTIME" run --dir . --dir /tmp result-wasm-uplc/uplc.wasm -- evaluate -i add.uplc -c
+
+      - name: Stage artifacts + checksums
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cp -L result-wasm-uplc/uplc.wasm artifacts/uplc.wasm
+          ( cd artifacts && sha256sum -- * > SHA256SUMS )
+
+      - name: Assemble release notes
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          BASE="${TAG%%-wasm32*}"
+          CURATED="wasm32-release-notes/${TAG}.md"
+          if [ -f "$CURATED" ]; then
+            cp "$CURATED" artifacts/NOTES.md
+          else
+            {
+              echo "wasm32-correct Plutus evaluator, rebased onto upstream \`${BASE}\`."
+              echo
+              echo "Every behavioural change is gated behind \`#if WORD_SIZE_IN_BITS == 64\`, so the source a 64-bit node compiles is byte-identical to upstream. What changed and how to use it: [WASM32.md](https://github.com/lambdasistemi/plutus/blob/${TAG}/WASM32.md)."
+              echo
+              echo "## Changes"
+              echo
+              PREV="$(git describe --tags --abbrev=0 --match '*-wasm32*' "${TAG}^" 2>/dev/null || true)"
+              if [ -n "$PREV" ]; then
+                echo "Since \`${PREV}\`:"
+                echo
+                git log --no-merges --pretty='- %s' "${PREV}..${TAG}"
+              else
+                echo "Initial wasm32 release for \`${BASE}\`."
+              fi
+            } > artifacts/NOTES.md
+          fi
+          {
+            echo
+            echo "## Assets"
+            echo
+            echo '```'
+            cat artifacts/SHA256SUMS
+            echo '```'
+          } >> artifacts/NOTES.md
+          echo '----- assembled release notes -----'
+          cat artifacts/NOTES.md
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          export TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          test "$GH_REPO" = "$GITHUB_REPOSITORY"
+          # gh is not on the self-hosted nixos runner PATH; provide it via nix.
+          nix shell --accept-flake-config nixpkgs#gh --command bash -euo pipefail -c '
+            if gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+              gh release edit "$TAG" --repo "$GH_REPO" --title "$TAG" --notes-file artifacts/NOTES.md --latest
+            else
+              gh release create "$TAG" --repo "$GH_REPO" --title "$TAG" --notes-file artifacts/NOTES.md --latest
+            fi
+            gh release upload "$TAG" --repo "$GH_REPO" artifacts/uplc.wasm artifacts/SHA256SUMS --clobber
+          '

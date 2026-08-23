@@ -1,0 +1,56 @@
+name: "🕸️ Wasm32 — redirect old SPA URL to plutus-browser"
+
+# The browser SPA moved to its own repo (lambdasistemi/plutus-browser). GitHub
+# does not allow disabling this fork's Pages site, so publish a permanent
+# redirect from the old URL (lambdasistemi.github.io/plutus) to the new home.
+# This fork is the wasm32 evaluator library only.
+
+on:
+  push:
+    branches:
+      - 'wasm32-**'
+    paths:
+      - '.github/workflows/wasm32-pages-redirect.yml'
+  workflow_dispatch:
+
+permissions:
+  pages: write
+  id-token: write
+
+concurrency:
+  group: wasm32-spa-pages
+  cancel-in-progress: false
+
+jobs:
+  redirect:
+    runs-on: nixos
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Build redirect page
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <title>Moved → plutus-browser</title>
+              <meta http-equiv="refresh" content="0; url=https://lambdasistemi.github.io/plutus-browser/" />
+              <link rel="canonical" href="https://lambdasistemi.github.io/plutus-browser/" />
+            </head>
+            <body>
+              The UPLC browser playground moved to
+              <a href="https://lambdasistemi.github.io/plutus-browser/">lambdasistemi.github.io/plutus-browser</a>.
+            </body>
+          </html>
+          HTML
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

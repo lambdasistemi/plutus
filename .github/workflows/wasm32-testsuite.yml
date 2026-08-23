@@ -1,0 +1,114 @@
+name: "🕸️ Wasm32 Testsuite"
+
+on:
+  # push-triggered workflows run from the pushed branch (no default-branch
+  # requirement, unlike schedule/workflow_dispatch) — this is what actually
+  # fires the suite and populates the cachix cache when a release branch lands.
+  push:
+    branches:
+      - 'wasm32-**'
+  schedule:
+    - cron: 0 3 * * *
+  workflow_dispatch:
+    inputs:
+      hedgehog-tests:
+        description: Number of tests to run (--hedgehog-tests XXXXX)
+        required: false
+        default: "1000"
+
+env:
+  HEDGEHOG_TESTS: ${{ github.event.inputs.hedgehog-tests || 1000 }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  wasm32-testsuite:
+    runs-on: nixos
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: paolino
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Add wasm runtime to PATH
+        run: echo "$(nix build .#wasm-toolchain --no-link --print-out-paths)/bin" >> "$GITHUB_PATH"
+
+      - name: Build wasm plutus-core-test
+        run: nix build .#wasm-plutus-core-test -o result-wasm-plutus-core-test
+
+      - name: Run wasm plutus-core-test
+        working-directory: plutus-core
+        run: |
+          wasmtime run --dir . --dir /tmp \
+            ../result-wasm-plutus-core-test/plutus-core-test.wasm \
+            --hedgehog-tests "$HEDGEHOG_TESTS" --no-create
+
+      - name: Build wasm untyped-plutus-core-test
+        run: nix build .#wasm-untyped-plutus-core-test -o result-wasm-untyped-plutus-core-test
+
+      - name: Run wasm untyped-plutus-core-test
+        working-directory: plutus-core
+        run: |
+          wasmtime run --dir . --dir /tmp \
+            ../result-wasm-untyped-plutus-core-test/untyped-plutus-core-test.wasm \
+            --hedgehog-tests "$HEDGEHOG_TESTS" --no-create
+
+      - name: Build wasm plutus-ir-test
+        run: nix build .#wasm-plutus-ir-test -o result-wasm-plutus-ir-test
+
+      - name: Run wasm plutus-ir-test
+        working-directory: plutus-core
+        run: |
+          wasmtime run --dir . --dir /tmp \
+            ../result-wasm-plutus-ir-test/plutus-ir-test.wasm \
+            --hedgehog-tests "$HEDGEHOG_TESTS" --no-create
+
+      - name: Build wasm index-envs-test
+        run: nix build .#wasm-index-envs-test -o result-wasm-index-envs-test
+
+      - name: Run wasm index-envs-test
+        working-directory: plutus-core
+        run: |
+          wasmtime run --dir . --dir /tmp \
+            ../result-wasm-index-envs-test/index-envs-test.wasm
+
+      - name: Build wasm satint-test
+        run: nix build .#wasm-satint-test -o result-wasm-satint-test
+
+      - name: Run wasm satint-test
+        working-directory: plutus-core
+        run: |
+          wasmtime run --dir . --dir /tmp \
+            ../result-wasm-satint-test/satint-test.wasm
+
+      - name: Build wasm flat-test
+        run: nix build .#wasm-flat-test -o result-wasm-flat-test
+
+      - name: Run wasm flat-test
+        working-directory: plutus-core
+        run: |
+          wasmtime run --dir . --dir /tmp \
+            ../result-wasm-flat-test/flat-test.wasm
+
+      # Upstream's own conformance corpus (UPLC result + ExBudget goldens),
+      # run under wasmtime from plutus-conformance/ so test-cases/ is on CWD.
+      # The CEK evaluator + golden compare are in-process (no fork/diff), so
+      # this needs no special WASI handling beyond mounting the test tree.
+      - name: Build wasm haskell-conformance
+        run: nix build .#wasm-haskell-conformance -o result-wasm-haskell-conformance
+
+      - name: Run wasm haskell-conformance
+        working-directory: plutus-conformance
+        run: |
+          wasmtime run --dir . --dir /tmp \
+            ../result-wasm-haskell-conformance/haskell-conformance.wasm \
+            --no-create
+
+      # Documented exclusion: flat-big-test is gated on wasm32 because the
+      # stress executable traps in the GHC wasm RTS call_indirect table.
