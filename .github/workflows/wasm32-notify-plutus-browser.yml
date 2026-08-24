@@ -1,0 +1,73 @@
+name: "🕸️ Wasm32 — notify plutus-browser"
+
+# A release tag runs its workflow from the tag tree, but workflow_run listeners
+# run from the default branch. Bridge a successful published artifact to the
+# browser-owned, idempotent dependency-PR workflow without mutating either
+# default branch.
+on:
+  workflow_run:
+    workflows:
+      - "🕸️ Wasm32 Release"
+      - "🕸️ Wasm32 Release Assets"
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plutus-browser-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch verified release
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      contains(github.event.workflow_run.head_branch, '-wasm32.')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint a two-repository token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.CI_APP_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+          owner: lambdasistemi
+          repositories: |
+            plutus
+            plutus-browser
+
+      - name: Verify publication and notify the browser
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          TAG_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_RUN: ${{ github.event.workflow_run.html_url }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-wasm32\.[0-9]+$ ]]
+
+          release=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease,url,targetCommitish)
+          test "$(jq -r .isDraft <<<"$release")" = false
+          test "$(jq -r .isPrerelease <<<"$release")" = false
+          release_url=$(jq -r .url <<<"$release")
+
+          jq -n \
+            --arg tag "$TAG" \
+            --arg tag_sha "$TAG_SHA" \
+            --arg release_url "$release_url" \
+            --arg source_run "$SOURCE_RUN" \
+            '{
+              event_type: "plutus-wasm-released",
+              client_payload: {
+                tag: $tag,
+                tag_sha: $tag_sha,
+                release_url: $release_url,
+                source_run: $source_run
+              }
+            }' \
+            | gh api --method POST repos/lambdasistemi/plutus-browser/dispatches --input -
+
+          echo "Dispatched plutus-browser bump for $TAG ($release_url)."
